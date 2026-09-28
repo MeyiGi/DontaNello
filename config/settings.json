@@ -1,0 +1,19 @@
+{
+  "completion_sources": [
+    {"id": "c0b43782-a882-83c8-9d1a-87dd25beebaf", "name": "Tasks — Сделано", "checkbox": "Сделано", "completed_on": "Completed On"},
+    {"id": "c0b43782-a882-83c8-9d1a-87dd25beebaf", "name": "Tasks — Готово", "checkbox": "Готово", "completed_on": "Completed On"},
+    {"id": "e1691e60-5630-4859-b174-0ca8df716381", "name": "Goals", "checkbox": "Checkbox", "completed_on": "Completed on"}
+  ],
+  "work_source_id": "0bf4e4e4-a735-4101-b43a-38fd6599c820",
+  "reports": {
+    "enabled": true,
+    "hour": 9,
+    "minute": 0,
+    "sources": [
+      {"id": "c0b43782-a882-83c8-9d1a-87dd25beebaf", "name": "Задачи", "date_property": "Completed On", "title_property": "Name", "checkbox_properties": ["Сделано", "Готово"], "completed_property": "Completed", "excluded_status_property": "List", "excluded_status_values": ["Cancel ❌"]},
+      {"id": "e1691e60-5630-4859-b174-0ca8df716381", "name": "Цели", "date_property": "Completed on", "title_property": "Goal", "checkbox_properties": ["Checkbox"]},
+      {"id": "0bf4e4e4-a735-4101-b43a-38fd6599c820", "name": "Работа", "date_property": "Дата", "title_property": "Запись", "detail_properties": ["Что сделал", "Результат"]}
+    ]
+  },
+  "operations": {"backup_retention": 14, "alert_cooldown_seconds": 3600}
+}

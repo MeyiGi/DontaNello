@@ -1,0 +1,1 @@
+"""External report-source adapters."""

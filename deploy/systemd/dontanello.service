@@ -1,0 +1,15 @@
+[Unit]
+Description=Dontanello Notion completion watcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/meyigi/personal/personal/30_personal/dontanello
+ExecStart=/usr/bin/python3 /home/meyigi/personal/personal/30_personal/dontanello/assistant.py
+Restart=on-failure
+RestartSec=15
+UMask=0077
+
+[Install]
+WantedBy=default.target

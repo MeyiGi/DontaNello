@@ -1,0 +1,1 @@
+"""Adapter behavior tests."""

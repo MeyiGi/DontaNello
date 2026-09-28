@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dontanello"
+version = "0.1.0"
+description = "Modular personal automation assistant"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+dontanello = "dontanello.entrypoints.cli:main"
+
+[project.optional-dependencies]
+dev = ["ruff>=0.9,<1", "mypy>=1.14,<2"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# This read-only helper explicitly bootstraps the src path before importing the package.
+"scripts/inspect_notion.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true

@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+state/
+*.log
+.codegraph/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+# Local editor/agent configuration belongs to this machine.
+.agents/
+.codex/
+.vscode/
