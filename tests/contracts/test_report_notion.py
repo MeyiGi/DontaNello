@@ -58,6 +58,7 @@ class NotionReportSourceTests(unittest.TestCase):
 
         self.assertEqual([item.id for item in result], ["first", "boundary", "last"])
         self.assertEqual(result[0].details, "Notes: Подробности")
+        self.assertEqual(result[1].recorded_at, "2026-02-01T04:30:00+06:00")
         self.assertEqual(
             client.calls[0],
             (
@@ -94,6 +95,7 @@ class NotionReportSourceTests(unittest.TestCase):
         item["properties"]["Date"]["date"]["start"] = "2026-02-28T23:30:00+08:00"
         result = list(source.items(Period("month", date(2026, 2, 1), date(2026, 3, 1))))
         self.assertEqual([value.completed_on for value in result], [date(2026, 2, 28)])
+        self.assertEqual(result[0].recorded_at, "2026-02-28T21:30:00+06:00")
 
     def test_goals_require_checkbox_but_work_log_is_dated_activity(self):
         pages = [page("unchecked", checked=False, date_value="2026-02-05")]

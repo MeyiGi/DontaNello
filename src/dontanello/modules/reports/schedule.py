@@ -43,7 +43,9 @@ class ScheduledReports:
                     continue
                 # A pending journal row ignores this freshly built text and resumes its
                 # durable first snapshot. A build failure cannot alter delivery state.
-                report = self.build(period)
+                report = self.delivery.existing_text(key)
+                if report is None:
+                    report = self.build(period)
                 total_sent += self.delivery.deliver(key, report, now)
             except Exception:
                 failures.append(kind)

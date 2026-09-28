@@ -45,7 +45,10 @@ class TelegramCommands:
                     now = self.now()
                     key = f"command:{update_id}"
                     if self.delivery.needs_delivery(key, now):
-                        if command_name in ("/week", "/month"):
+                        existing = self.delivery.existing_text(key)
+                        if existing is not None:
+                            text = existing
+                        elif command_name in ("/week", "/month"):
                             period = (
                                 previous_week(now.date())
                                 if command_name == "/week"

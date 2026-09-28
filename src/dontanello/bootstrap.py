@@ -7,6 +7,7 @@ from queue import Empty, SimpleQueue
 
 from dontanello.entrypoints.telegram import TelegramCommands
 from dontanello.entrypoints.worker import Job
+from dontanello.integrations.groq.client import GroqClient
 from dontanello.integrations.notion.client import NotionClient
 from dontanello.integrations.telegram.client import TelegramClient
 from dontanello.modules.completion import CompletionTracker
@@ -20,7 +21,14 @@ from dontanello.modules.operations.adapters.filesystem_backups import FileBackup
 from dontanello.modules.operations.adapters.json_alerts import JsonAlertState
 from dontanello.modules.operations.adapters.serialized_monitor import SerializedMonitor
 from dontanello.modules.operations.adapters.telegram import TelegramAlertSender
-from dontanello.modules.reports import DeliveryService, Period, ScheduledReports, build_report
+from dontanello.modules.reports import (
+    DeliveryService,
+    NarrativeReports,
+    Period,
+    ScheduledReports,
+    build_report,
+)
+from dontanello.modules.reports.adapters.groq import GroqSummaryGenerator
 from dontanello.modules.reports.adapters.notion import NotionReportConfig, NotionReportSource
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.modules.reports.adapters.telegram import TelegramReportSender
@@ -41,7 +49,14 @@ class Runtime:
         return datetime.now(self.settings.timezone)
 
     def report(self, period: Period, full: bool = False) -> str:
-        return build_report(period, self.report_sources, compact=not full)
+        if full:
+            return build_report(period, self.report_sources, compact=False)
+        if not self.settings.groq_api_key:
+            raise ValueError("GROQ_API_KEY не задан для смысловых отчётов")
+        generator = GroqSummaryGenerator(
+            GroqClient(self.settings.groq_api_key, self.settings.groq_model)
+        )
+        return NarrativeReports(self.report_sources, generator).build(period)
 
     def check(self) -> None:
         for source in self.sources:
@@ -65,6 +80,11 @@ class Runtime:
                 if schema["properties"].get(name, {}).get("type") != kind:
                     raise ValueError(f"Report {report_source.config.name}: invalid field {name}")
             print("Report source: " + report_source.config.name + " OK")
+        if self.settings.groq_api_key:
+            available = GroqClient(self.settings.groq_api_key, self.settings.groq_model).models()
+            if self.settings.groq_model not in available:
+                raise ValueError("Настроенная Groq модель недоступна этому ключу")
+            print("Groq: " + self.settings.groq_model + " OK")
 
     def jobs(self) -> list[Job]:
         state = JsonCheckboxState(self.settings.root / "state" / "checkboxes.json")

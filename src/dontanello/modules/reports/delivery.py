@@ -100,6 +100,11 @@ class DeliveryService:
             row.status == "sent" for row in rows
         )
 
+    def existing_text(self, key: str) -> str | None:
+        """Reuse the durable snapshot without another Notion/LLM request."""
+        chunks = self.store.chunks(self._key(key))
+        return "".join(chunk.text for chunk in chunks) if chunks else None
+
     def deliver(self, key: str, text: str, now: datetime) -> int:
         scoped_key = self._key(key)
         # Insert once: retries always use the first durable content snapshot.

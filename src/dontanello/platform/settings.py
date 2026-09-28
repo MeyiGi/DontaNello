@@ -17,6 +17,8 @@ class Settings:
     poll_seconds: int
     config: dict[str, Any]
     telegram_chat_id: str = field(default="", repr=False)
+    groq_api_key: str = field(default="", repr=False)
+    groq_model: str = "openai/gpt-oss-120b"
 
 
 def load_settings(root: Path) -> Settings:
@@ -86,6 +88,12 @@ def load_settings(root: Path) -> Settings:
             chat_id = str(numeric_id)
         except ValueError:
             raise ValueError("TELEGRAM_CHAT_ID должен быть числовым идентификатором чата") from None
+    groq_key = environment.get("GROQ_API_KEY", "").strip()
+    groq_model = environment.get("GROQ_MODEL", "openai/gpt-oss-120b").strip()
+    if reports.get("enabled") and not groq_key:
+        raise ValueError("Включённые отчёты требуют GROQ_API_KEY")
+    if groq_key and not groq_model:
+        raise ValueError("GROQ_MODEL не задан")
     return Settings(
         root=root,
         notion_token=token,
@@ -94,4 +102,6 @@ def load_settings(root: Path) -> Settings:
         poll_seconds=max(5, int(environment.get("POLL_SECONDS", "30"))),
         config=config,
         telegram_chat_id=chat_id,
+        groq_api_key=groq_key,
+        groq_model=groq_model,
     )

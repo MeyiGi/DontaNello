@@ -19,3 +19,4 @@ class ReportItem:
     url: str
     section: str
     details: str = ""
+    recorded_at: str = ""

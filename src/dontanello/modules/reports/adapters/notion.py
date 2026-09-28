@@ -50,7 +50,8 @@ class NotionReportSource:
             if page.get("archived") or page.get("in_trash"):
                 continue
             properties = page.get("properties", {})
-            completed_on = _property_date(properties.get(self.config.date_property), self.timezone)
+            date_value = properties.get(self.config.date_property)
+            completed_on = _property_date(date_value, self.timezone)
             if completed_on is None or not period.start <= completed_on < period.end:
                 continue
             if not self._included(properties, section):
@@ -65,6 +66,7 @@ class NotionReportSource:
                 url=page.get("url", "") if isinstance(page.get("url", ""), str) else "",
                 section=section,
                 details=_details(properties, self.config.detail_properties),
+                recorded_at=_property_start(date_value, self.timezone),
             )
 
     def _included(self, properties: dict[str, Any], section: str) -> bool:
@@ -90,27 +92,35 @@ class NotionReportSource:
 
 
 def _property_date(value: Any, timezone: ZoneInfo) -> date | None:
-    if not isinstance(value, dict):
-        return None
-    date_value = value.get("date")
-    if isinstance(date_value, dict):
-        raw = date_value.get("start")
-    else:
-        raw = None
-    if not isinstance(raw, str) or not raw:
+    recorded_at = _property_start(value, timezone)
+    if not recorded_at:
         return None
     try:
+        if "T" not in recorded_at:
+            return date.fromisoformat(recorded_at)
+        return datetime.fromisoformat(recorded_at).date()
+    except ValueError:
+        return None
+
+
+def _property_start(value: Any, timezone: ZoneInfo) -> str:
+    if not isinstance(value, dict) or not isinstance(value.get("date"), dict):
+        return ""
+    raw = value["date"].get("start")
+    if not isinstance(raw, str) or not raw:
+        return ""
+    try:
         if "T" not in raw:
-            return date.fromisoformat(raw)
+            return date.fromisoformat(raw).isoformat()
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         localized = (
             parsed.replace(tzinfo=timezone)
             if parsed.tzinfo is None
             else parsed.astimezone(timezone)
         )
-        return localized.date()
+        return localized.isoformat()
     except ValueError:
-        return None
+        return ""
 
 
 def _property_text(value: Any) -> str:

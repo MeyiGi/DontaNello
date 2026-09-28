@@ -21,7 +21,15 @@ def imports(path):
 
 class ArchitectureTests(unittest.TestCase):
     def test_business_code_only_depends_on_its_own_contracts_and_pure_stdlib(self):
-        pure_stdlib = {"__future__", "collections", "dataclasses", "datetime", "enum", "typing"}
+        pure_stdlib = {
+            "__future__",
+            "collections",
+            "dataclasses",
+            "datetime",
+            "enum",
+            "re",
+            "typing",
+        }
         for path in (SOURCE / "dontanello" / "modules").rglob("*.py"):
             parts = path.relative_to(SOURCE).parts
             if "adapters" in parts:

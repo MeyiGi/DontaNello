@@ -57,3 +57,35 @@ class SettingsTests(unittest.TestCase):
         with patch("dontanello.platform.clock.datetime") as clock:
             clock.now.side_effect = lambda tz: instant.astimezone(tz)
             self.assertEqual(LocalClock(ZoneInfo("Asia/Bishkek")).today().isoformat(), "2026-09-28")
+
+    def test_enabled_reports_require_groq_at_startup(self):
+        config = {
+            "completion_sources": [self.source],
+            "reports": {
+                "enabled": True,
+                "sources": [
+                    {
+                        "id": "work",
+                        "name": "Work",
+                        "date_property": "Date",
+                        "title_property": "Name",
+                    }
+                ],
+            },
+        }
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            self.assertRaisesRegex(ValueError, "GROQ_API_KEY"),
+        ):
+            load_settings(self.root)
+        with patch.dict("os.environ", {"GROQ_API_KEY": "private-groq-key"}, clear=True):
+            settings = load_settings(self.root)
+            self.assertNotIn("private-groq-key", repr(settings))
+
+    def test_empty_groq_model_is_rejected(self):
+        with patch.dict(
+            "os.environ", {"GROQ_API_KEY": "private-groq-key", "GROQ_MODEL": ""}, clear=True
+        ):
+            with self.assertRaisesRegex(ValueError, "GROQ_MODEL"):
+                load_settings(self.root)

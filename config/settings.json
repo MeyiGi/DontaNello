@@ -12,7 +12,7 @@
     "sources": [
       {"id": "c0b43782-a882-83c8-9d1a-87dd25beebaf", "name": "Задачи", "date_property": "Completed On", "title_property": "Name", "checkbox_properties": ["Сделано", "Готово"], "completed_property": "Completed", "excluded_status_property": "List", "excluded_status_values": ["Cancel ❌"]},
       {"id": "e1691e60-5630-4859-b174-0ca8df716381", "name": "Цели", "date_property": "Completed on", "title_property": "Goal", "checkbox_properties": ["Checkbox"]},
-      {"id": "0bf4e4e4-a735-4101-b43a-38fd6599c820", "name": "Работа", "date_property": "Дата", "title_property": "Запись", "detail_properties": ["Что сделал", "Результат"]}
+      {"id": "0bf4e4e4-a735-4101-b43a-38fd6599c820", "name": "Работа", "date_property": "Дата", "title_property": "Запись", "detail_properties": ["Что сделал", "Результат", "Следующий шаг", "Состояние", "Заметки", "Причина ожидания"]}
     ]
   },
   "operations": {"backup_retention": 14, "alert_cooldown_seconds": 3600}

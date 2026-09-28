@@ -101,6 +101,7 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertEqual(self.cursor.load(), 2)
+        self.assertEqual(len(self.periods), 1)
 
     def test_ambiguous_delivery_is_not_repeated_on_update_replay(self):
         self.telegram.items = [update(1)]
