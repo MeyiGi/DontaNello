@@ -83,11 +83,11 @@ def load_settings(root: Path) -> Settings:
     if chat_id:
         try:
             numeric_id = int(chat_id)
-            if not numeric_id:
+            if numeric_id <= 0:
                 raise ValueError
             chat_id = str(numeric_id)
         except ValueError:
-            raise ValueError("TELEGRAM_CHAT_ID должен быть числовым идентификатором чата") from None
+            raise ValueError("TELEGRAM_CHAT_ID должен быть положительным ID личного чата") from None
     groq_key = environment.get("GROQ_API_KEY", "").strip()
     groq_model = environment.get("GROQ_MODEL", "openai/gpt-oss-120b").strip()
     if reports.get("enabled") and not groq_key:

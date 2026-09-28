@@ -89,3 +89,8 @@ class SettingsTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "GROQ_MODEL"):
                 load_settings(self.root)
+
+    def test_personal_reports_cannot_be_configured_for_a_group(self):
+        with patch.dict("os.environ", {"TELEGRAM_CHAT_ID": "-1001234567890"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "личного чата"):
+                load_settings(self.root)

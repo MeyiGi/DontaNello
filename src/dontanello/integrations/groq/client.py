@@ -33,7 +33,7 @@ class GroqClient:
             "max_completion_tokens": _MAX_COMPLETION_TOKENS,
         }
         if self._model.startswith("openai/gpt-oss-"):
-            payload["reasoning_effort"] = "low"
+            payload["reasoning_effort"] = "medium"
             payload["include_reasoning"] = False
             payload["max_completion_tokens"] = 3000
         response = self._request("POST", "chat/completions", payload)

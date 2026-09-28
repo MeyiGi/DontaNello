@@ -22,14 +22,14 @@ def http_error(status, retry_after=None):
 
 
 class GroqTransportTests(unittest.TestCase):
-    def test_gpt_oss_uses_low_reasoning_and_excludes_reasoning_from_output(self):
+    def test_gpt_oss_uses_medium_reasoning_and_excludes_reasoning_from_output(self):
         response = io.BytesIO(
             b'{"choices":[{"message":{"content":"summary"},"finish_reason":"stop"}]}'
         )
         with patch("urllib.request.urlopen", return_value=response) as urlopen:
             GroqClient("fixture-key", "openai/gpt-oss-120b").complete("system", "user")
         payload = json.loads(urlopen.call_args.args[0].data)
-        self.assertEqual(payload["reasoning_effort"], "low")
+        self.assertEqual(payload["reasoning_effort"], "medium")
         self.assertFalse(payload["include_reasoning"])
         self.assertEqual(payload["max_completion_tokens"], 3000)
 

@@ -159,6 +159,45 @@ class NarrativeReportTests(unittest.TestCase):
         self.assertIn('"recorded_at":"2026-09-22"', user)
         self.assertIn("пустые разделы", system)
         self.assertIn("Не называй количество строк журнала задачами", system)
+        verify_system, verify_user = client.calls[1]
+        self.assertTrue(verify_system.startswith("Ты составляешь личный отчёт"))
+        self.assertIn("исходным свидетельствам", verify_system)
+        verification = json.loads(verify_user)
+        self.assertEqual(verification["draft"], client.result)
+        self.assertEqual(verification["evidence"]["items"][0]["title"], item.title)
+
+    def test_verifier_removes_unsupported_claims_and_keeps_confirmed_author_progress(self):
+        class DraftThenReviewClient:
+            def __init__(self):
+                self.calls = []
+
+            def complete(self, system, user):
+                self.calls.append((system, user))
+                if "исходным свидетельствам" in system:
+                    return "Архив истории теперь работает. Срок гарантии в записи не подтверждён."
+                return "Отмечено, что архив истории теперь работает. Гарантия сохранения без потерь — пять минут."
+
+        item = ReportItem(
+            "work-1",
+            "Архив истории",
+            date(2026, 9, 26),
+            "https://private.invalid/archive",
+            "work",
+            "Что сделал: настроил архив истории, теперь прекрасно сохраняет",
+            "2026-09-26T16:45:00+06:00",
+        )
+        client = DraftThenReviewClient()
+
+        report = GroqSummaryGenerator(client).summarize(self.period, [item])
+
+        self.assertEqual(
+            report, "Архив истории теперь работает. Срок гарантии в записи не подтверждён."
+        )
+        self.assertEqual(len(client.calls), 2)
+        verification = json.loads(client.calls[1][1])
+        self.assertIn("Гарантия сохранения без потерь", verification["draft"])
+        self.assertIn("теперь прекрасно сохраняет", verification["evidence"]["items"][0]["details"])
+        self.assertNotIn("https://private.invalid", client.calls[1][1])
 
     def test_all_84_work_records_reach_batched_groq_input(self):
         records = [
@@ -177,15 +216,30 @@ class NarrativeReportTests(unittest.TestCase):
         self.assertTrue(result.endswith(client.result))
         input_calls = [user for system, user in client.calls if "Сожми эту часть" in system]
         self.assertGreater(len(input_calls), 1)
-        self.assertLessEqual(max(map(len, (user for _, user in client.calls))), 10_000)
+        self.assertTrue(all(len(user) <= 10_000 for user in input_calls))
+        self.assertLessEqual(len(client.calls[-2][1]), 10_000)
+        self.assertLessEqual(len(client.calls[-1][1]), 14_000)
         joined = "\n".join(input_calls)
         grouped_rows = [row for user in input_calls for row in json.loads(user)["items"]]
         self.assertEqual(len(grouped_rows), 7)
         for index in range(84):
             self.assertIn(f"Concrete fact {index}", joined)
-        final_system = client.calls[-1][0]
+        final_system = client.calls[-2][0]
         self.assertIn("Не называй количество строк журнала задачами", final_system)
         self.assertIn("не указывай даты или время", final_system)
+        self.assertTrue(client.calls[-1][0].startswith("Ты составляешь личный отчёт"))
+        verification = json.loads(client.calls[-1][1])
+        self.assertIn("notes", verification["evidence"])
+
+    def test_verification_input_over_14000_chars_fails_without_verification_call(self):
+        from dontanello.modules.reports.adapters.groq import _final_report, _json_payload
+
+        client = FakeGroqClient()
+        evidence = _json_payload("week", "items", [{"details": "x" * 14_000}])
+
+        with self.assertRaisesRegex(ValueError, "14000 character verification limit"):
+            _final_report(client, "week", evidence, "Короткий отчёт.")
+        self.assertEqual(client.calls, [])
 
     def test_groq_api_failure_propagates(self):
         error = RuntimeError("Groq unavailable")
@@ -255,7 +309,9 @@ class NarrativeReportTests(unittest.TestCase):
 
         self.assertIn("Фактический итог", result)
         self.assertGreater(len(client.calls), 7)
-        self.assertTrue(all(len(user) <= 10_000 for _, user in client.calls))
+        input_calls = [user for system, user in client.calls if "Сожми эту часть" in system]
+        self.assertTrue(all(len(user) <= 10_000 for user in input_calls))
+        self.assertTrue(all(len(user) <= 14_000 for _, user in client.calls))
 
     def test_generator_errors_propagate_without_raw_report_fallback(self):
         class BrokenGenerator:
