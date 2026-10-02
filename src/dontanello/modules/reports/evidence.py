@@ -47,7 +47,7 @@ _EXTERNAL_BLOCKER = re.compile(
 _PLAN = re.compile(
     r"(?:\bпланирую\b|\bдоговорил(?:ся|ась)\b|решил(?:а)? продолжить|продолжить|вернуться к|"
     r"следующ(?:ий|им) шаг(?:ом)?\s*[:—-]\s*(?:проверить|добавить|создать|реализовать|внедрить|настроить|"
-    r"продолжить|вернуться|завершить|обновить|выполнить|поговорить|написать)|"
+    r"продолжить|вернуться|завершить|обновить|выполнить|поговорить|написать|найти|определить|разобрать|посмотреть|проанализировать|изучить)|"
     r"next step\s*[:—-]\s*(?:check|add|create|implement|configure|continue|return|finish|update|talk|write)|"
     r"will continue|planned to|plan to|committed to)",
     re.IGNORECASE,
@@ -196,8 +196,12 @@ def _semantics_are_supported(
         return False
     if finding.kind != "idea" and _HYPOTHETICAL.search(narrative):
         return False
-    if finding.kind in {"achievement", "transformation", "progress"} and _INTENT.search(narrative):
-        return False
+    if finding.kind in {"achievement", "transformation", "progress"}:
+        # A historical intention may be the supported before-state. It must not
+        # turn the explicitly observed after-state into an intention again.
+        result_narrative = f"{finding.text} {finding.action} {finding.after}"
+        if _INTENT.search(result_narrative):
+            return False
     result_evidence = current
     if finding.kind in {"achievement", "transformation", "progress"} and finding.after_ids:
         known = {entry.id: entry for entry in current}
@@ -226,7 +230,7 @@ def _semantics_are_supported(
     if finding.kind == "blocker":
         return bool(_EXTERNAL_BLOCKER.search(current_text))
     if finding.kind == "next_step":
-        return bool(_PLAN.search(current_text)) and not _INTENT.search(finding.text)
+        return bool(_PLAN.search(current_text))
     if finding.kind == "learning":
         if _MASTERY.search(narrative) and not _MASTERY.search(current_text):
             return False
@@ -241,7 +245,7 @@ def _semantics_are_supported(
         return _has_action(result_text) or _has_result(result_text)
     if finding.kind == "idea":
         # An idea may be mentioned as an idea, but cannot be passed off as a completed result.
-        return bool(citations)
+        return bool(re.search(r"\b(?:иде[яиюйе]\w*|idea|concept)\b", current_text, re.IGNORECASE))
     if finding.kind == "unfinished":
         if finding.status == "unknown":
             return bool(_UNFINISHED.search(current_text))
@@ -295,7 +299,7 @@ def _has_result(text: str) -> bool:
         and not _INTENT.search(clause)
         and not _NEGATED_COMPLETION.search(clause)
         and not _PARTIAL_RESULT.search(clause)
-        for clause in re.split(r"[;.!?\n]+", text)
+        for clause in _result_clauses(text)
     )
 
 
@@ -304,12 +308,29 @@ def _has_action(text: str) -> bool:
         _ACTION.search(clause)
         and not _INTENT.search(clause)
         and not _NEGATED_COMPLETION.search(clause)
-        for clause in re.split(r"[;.!?\n]+", text)
+        for clause in _result_clauses(text)
+    )
+
+
+def _result_clauses(text: str) -> list[str]:
+    """Separate an observed result from a trailing plan in informal notes."""
+    return re.split(
+        r"[;.!?\n]+|(?=\b(?:нужно|надо|необходимо|предстоит|планирую)\b)",
+        text,
+        flags=re.IGNORECASE,
     )
 
 
 def _project_name(title: str) -> str:
-    value = _DATE_OR_TIME.sub(" ", title)
+    # Notion snapshots also use dates without a year. Strip them only in
+    # timestamp positions, preserving meaningful numbers inside project names.
+    value = re.sub(
+        r"(?:\b(?:snapshot|снимок)\s+|[—–|]\s*)\d{1,2}[.]\d{2}(?![.]\d)(?:\s+\d{1,2}:\d{2})?",
+        " ",
+        title,
+        flags=re.IGNORECASE,
+    )
+    value = _DATE_OR_TIME.sub(" ", value)
     value = re.sub(r"\b(?:snapshot|снимок)\b", " ", value, flags=re.IGNORECASE)
     return _WHITESPACE.sub(" ", value).strip(" -–—|:[]()").casefold() or "Без названия"
 

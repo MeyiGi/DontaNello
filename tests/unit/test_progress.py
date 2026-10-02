@@ -338,7 +338,7 @@ class ProgressReportsTests(unittest.TestCase):
         self.assertNotIn(("save", "chat", self.week), archive.calls)
 
     def test_analysis_cost_measurements_survive_validation_and_archival(self):
-        metrics = AnalysisMetrics("gpt-6.1-sol", "medium", 1, 0, 100, 30, 20)
+        metrics = AnalysisMetrics("openai/gpt-oss-120b", "medium", 1, 0, 100, 30, 20)
         current = item("work", "REP-1", "2026-09-22", details="Implemented cache")
 
         def analyze(period, evidence, history, spec):
@@ -754,3 +754,64 @@ class ProgressRenderingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InformalProgressRegressionTests(unittest.TestCase):
+    def setUp(self):
+        self.period = Period("week", date(2026, 9, 21), date(2026, 9, 28))
+        self.strategy = WeeklyStrategy().specification()
+
+    def test_snapshot_dates_do_not_split_one_project_into_different_projects(self):
+        entries = collect_evidence(
+            (
+                item("first", "Outlook automation — снимок 21.09 12:21", "2026-09-21"),
+                item("last", "Outlook automation — снимок 26.09 18:31", "2026-09-26"),
+                item("version", "Oracle 12.01 migration", "2026-09-26"),
+            )
+        )
+        self.assertEqual(entries[0].project, entries[1].project)
+        self.assertEqual(entries[0].project, "outlook automation")
+        self.assertIn("12.01", entries[2].project)
+
+    def test_observed_result_before_trailing_plan_is_progress_not_completed_project(self):
+        text = "Проверил все классно работает мне нравится надо посмотреть как можно еще улучшить"
+        entry = collect_evidence(
+            (item("outlook", "Outlook automation", "2026-09-22", details=text),)
+        )[0]
+        finding = Finding(
+            "progress",
+            entry.project,
+            "Проверка показала, что получение писем работает.",
+            (Citation(entry.id, text),),
+        )
+        accepted = validate_analysis(Analysis((finding,)), self.strategy, (entry,), self.period)
+        self.assertEqual(accepted.findings, (finding,))
+        for unsupported in (
+            "Надо проверить все работает",
+            "Не работает надо проверить",
+            "Нужно реализовать сохранение",
+        ):
+            sample = collect_evidence(
+                (item("negative", "Outlook automation", "2026-09-22", details=unsupported),)
+            )[0]
+            claim = Finding(
+                "progress", sample.project, "Функция работает.", (Citation(sample.id, unsupported),)
+            )
+            self.assertFalse(
+                validate_analysis(
+                    Analysis((claim,)), self.strategy, (sample,), self.period
+                ).findings
+            )
+
+    def test_explicit_investigation_plan_is_next_step_but_not_an_idea(self):
+        text = "Следующий шаг: Найти текущий SQL и определить источник данных."
+        entry = collect_evidence((item("sql", "REP-1", "2026-09-22", details=text),))[0]
+        plan = Finding(
+            "next_step",
+            entry.project,
+            "Надо найти SQL и определить источник данных.",
+            (Citation(entry.id, text),),
+        )
+        idea = Finding("idea", entry.project, "Идея найти SQL.", (Citation(entry.id, text),))
+        accepted = validate_analysis(Analysis((plan, idea)), self.strategy, (entry,), self.period)
+        self.assertEqual(accepted.findings, (plan,))
