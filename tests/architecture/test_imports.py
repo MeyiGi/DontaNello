@@ -28,7 +28,9 @@ class ArchitectureTests(unittest.TestCase):
             "datetime",
             "enum",
             "hashlib",
+            "logging",
             "re",
+            "unicodedata",
             "typing",
         }
         for path in (SOURCE / "dontanello" / "modules").rglob("*.py"):

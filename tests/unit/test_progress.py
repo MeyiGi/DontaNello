@@ -1,9 +1,14 @@
 import unittest
 from datetime import date, datetime, timezone
 
+from dontanello.modules.reports.compaction import compact_observations
 from dontanello.modules.reports.evidence import collect_evidence, validate_analysis
 from dontanello.modules.reports.models import Period, ReportItem
-from dontanello.modules.reports.progress import ProgressReports
+from dontanello.modules.reports.progress import (
+    ProgressReports,
+    _period_events,
+    _previous_month_report,
+)
 from dontanello.modules.reports.progress_models import (
     Analysis,
     AnalysisMetrics,
@@ -98,6 +103,90 @@ class ProgressReportsTests(unittest.TestCase):
         self.assertEqual(analyzer.calls, [])
         self.assertEqual([call[0] for call in archive.calls], ["get"])
 
+    def test_analyzer_receives_compacted_events_while_archive_keeps_raw_records(self):
+        rows = [
+            item(
+                "one",
+                "REP-8: Guest flow works",
+                "2026-09-22",
+                details="Ready.",
+                recorded_at="2026-09-22T09:00:00+06:00",
+            ),
+            item(
+                "two",
+                "REP-8: Guest flow works",
+                "2026-09-22",
+                details="Ready!",
+                recorded_at="2026-09-22T09:05:00+06:00",
+            ),
+            item(
+                "three",
+                "REP-8: Guest flow works",
+                "2026-09-22",
+                details="Ready",
+                recorded_at="2026-09-22T09:10:00+06:00",
+            ),
+        ]
+        source = FakeSource({(self.week.start, self.week.end): rows})
+        analyzer = FakeAnalyzer()
+        archive = FakeArchive()
+
+        document = ProgressReports([source], analyzer, archive, "chat", lambda: self.now).build(
+            self.week
+        )
+
+        analyzed = analyzer.calls[0][1]
+        self.assertEqual(len(analyzed), 1)
+        self.assertEqual(analyzed[0].observation_count, 3)
+        self.assertEqual(len(analyzed[0].source_ids), 3)
+        self.assertEqual(sum(item.source_kind == "work" for item in document.evidence), 3)
+        self.assertEqual(
+            sum(item.source_kind == "normalized_event" for item in document.evidence), 1
+        )
+
+    def test_month_reuses_weekly_events_and_previous_month_snapshot(self):
+        month = Period("month", date(2026, 9, 1), date(2026, 10, 1))
+        raw = collect_evidence(
+            [
+                item("covered", "REP-8: Guest flow", "2026-09-02", details="Implemented flow"),
+                item("uncovered", "REP-9: Cache", "2026-09-20", details="Updated cache"),
+            ]
+        )
+        covered = compact_observations((raw[0],))[0]
+        week = ProgressDocument(
+            Period("week", date(2026, 8, 31), date(2026, 9, 7)),
+            "week",
+            (),
+            (raw[0], covered),
+            self.now,
+        )
+        baseline_event = Evidence(
+            "baseline-event",
+            "baseline-page",
+            "REP-8",
+            date(2026, 8, 20),
+            "2026-08-20",
+            "Initial state",
+            "normalized_event",
+            source_ids=("baseline-source",),
+        )
+        baseline = ProgressDocument(
+            Period("month", date(2026, 8, 1), date(2026, 9, 1)),
+            "month",
+            (),
+            (baseline_event,),
+            self.now,
+        )
+        context = HistoricalContext(reports=(week, baseline))
+
+        events = _period_events(raw, context, month)
+
+        self.assertEqual(
+            {entry.id for entry in events},
+            {covered.id, compact_observations((raw[1],))[0].id},
+        )
+        self.assertIs(_previous_month_report(context, month), baseline)
+
     def test_passes_all_current_and_baseline_evidence_but_archives_only_current_and_cited_history(
         self,
     ):
@@ -164,8 +253,10 @@ class ProgressReportsTests(unittest.TestCase):
 
         document = reports.build(self.week)
 
-        self.assertEqual(len(document.evidence), 2)
         self.assertEqual({entry.source_id for entry in document.evidence}, {"new", "old"})
+        self.assertEqual(
+            {entry.source_kind for entry in document.evidence}, {"normalized_event", "work"}
+        )
         self.assertNotIn(future.id, {entry.id for entry in document.evidence})
         self.assertEqual(source.calls, [self.week, self.previous_week])
 
@@ -199,7 +290,7 @@ class ProgressReportsTests(unittest.TestCase):
         self.assertIn("нет подтверждённых сведений", learning.note)
         self.assertIn("нет сопоставимых датированных данных", rendered.casefold())
 
-    def test_invalid_citation_fails_closed_but_unsupported_next_step_is_omitted_with_notice(self):
+    def test_invalid_citation_fails_closed_and_next_step_can_continue_existing_project(self):
         current = item("work", "REP-8: cache", "2026-09-22", details="Updated cache and it works")
 
         def invalid(period, evidence, history, spec):
@@ -230,11 +321,8 @@ class ProgressReportsTests(unittest.TestCase):
         doc = ProgressReports(
             [source], FakeAnalyzer(unsupported), FakeArchive(), "chat", lambda: self.now
         ).build(self.week)
-        self.assertFalse(
-            next(section for section in doc.sections if section.key == "next").findings
-        )
-        self.assertIn("Снято неподтверждённых", doc.sections[-1].note)
-        self.assertNotIn("Снято неподтверждённых", doc.sections[0].note)
+        self.assertTrue(next(section for section in doc.sections if section.key == "next").findings)
+        self.assertFalse(any("лимит анализа" in section.note for section in doc.sections))
 
     def test_duplicate_source_versions_get_distinct_stable_evidence_ids(self):
         first = item(
@@ -339,7 +427,19 @@ class ProgressReportsTests(unittest.TestCase):
         self.assertNotIn(("save", "chat", self.week), archive.calls)
 
     def test_analysis_cost_measurements_survive_validation_and_archival(self):
-        metrics = AnalysisMetrics("openai/gpt-oss-120b", "medium", 1, 0, 100, 30, 20)
+        metrics = AnalysisMetrics(
+            "openai/gpt-oss-120b",
+            "medium",
+            1,
+            0,
+            100,
+            30,
+            20,
+            records_total=1,
+            records_processed=1,
+            events_created=1,
+            projects_covered=1,
+        )
         current = item("work", "REP-1", "2026-09-22", details="Implemented cache")
 
         def analyze(period, evidence, history, spec):
@@ -434,6 +534,35 @@ class EvidenceValidationTests(unittest.TestCase):
             with self.subTest(source=source):
                 finding, evidence = self.finding("achievement", source)
                 self.assertEqual(self.accepted(finding, evidence), (finding,))
+
+    def test_event_reference_is_enough_without_literal_quote_but_low_confidence_is_dropped(self):
+        evidence = collect_evidence(
+            [
+                item(
+                    "row",
+                    "REP-1: Toad automation",
+                    "2026-09-22",
+                    details="Разбирал существующий .tas",
+                )
+            ]
+        )[0]
+        inferred = Finding(
+            "learning",
+            evidence.project,
+            "Продвинулся в понимании структуры существующего .tas.",
+            (Citation(evidence.id, ""),),
+            confidence="medium",
+        )
+        speculative = Finding(
+            "learning",
+            evidence.project,
+            "Стал экспертом по Toad.",
+            (Citation(evidence.id, ""),),
+            confidence="low",
+        )
+
+        self.assertEqual(self.accepted(inferred, evidence), (inferred,))
+        self.assertFalse(self.accepted(speculative, evidence))
 
     def test_technical_work_and_course_exposure_support_modest_learning_without_mastery(self):
         course = (

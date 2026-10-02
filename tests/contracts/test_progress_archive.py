@@ -35,6 +35,10 @@ def document(
         text="The original evidence quote.",
         source_kind="task",
         url="https://example.test/" + evidence_id,
+        source_ids=("raw-snapshot-" + evidence_id,),
+        event_type="completed_task",
+        first_recorded_at="2026-09-01T11:59:00+06:00",
+        observation_count=2,
     )
     finding = Finding(
         kind="completed",
@@ -48,6 +52,7 @@ def document(
         after_ids=(evidence_id,),
         area="engineering",
         status="in_progress",
+        confidence="high",
     )
     return ProgressDocument(
         period=Period(kind, start, end),
@@ -90,6 +95,10 @@ class ProgressArchiveContractTests(unittest.TestCase):
         finding = saved.sections[0].findings[0]
         self.assertEqual(finding.citations, (Citation("source-1", "The original evidence quote."),))
         self.assertEqual(finding.before_ids, ("source-1",))
+        self.assertEqual(saved.evidence[0].source_ids, ("raw-snapshot-source-1",))
+        self.assertEqual(saved.evidence[0].event_type, "completed_task")
+        self.assertEqual(saved.evidence[0].observation_count, 2)
+        self.assertEqual(finding.confidence, "high")
         self.assertEqual(saved.generated_at, expected.generated_at)
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)

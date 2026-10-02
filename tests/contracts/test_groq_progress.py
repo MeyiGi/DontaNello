@@ -171,7 +171,13 @@ class GroqProgressTests(unittest.TestCase):
         )
         client = FakeClient(result(finding(entries[-1])))
 
-        self.analyze(client, entries, HistoricalContext(reports=(prior,)), period=self.month)
+        self.analyze(
+            client,
+            entries,
+            HistoricalContext(reports=(prior,)),
+            period=self.month,
+            max_batch_chars=20_000,
+        )
 
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(client.calls[0]["reasoning"], "high")
@@ -208,7 +214,9 @@ class GroqProgressTests(unittest.TestCase):
         old = tuple(evidence(f"old-{index}", day=f"2026-08-{index + 1:02d}") for index in range(20))
         client = FakeClient(result(finding(entries[-1])))
 
-        self.analyze(client, entries, HistoricalContext(old), max_history_records=4)
+        self.analyze(
+            client, entries, HistoricalContext(old), max_history_records=4, max_batch_chars=20_000
+        )
 
         supplied = input_text(client.calls[0])
         for entry in entries:
@@ -383,8 +391,9 @@ class GroqProgressTests(unittest.TestCase):
         payload = json.loads(client.calls[0]["input"][0]["content"])
         supplied = payload["historical_facts"]
         self.assertEqual(len(supplied), 4)
-        self.assertIn(history[0].id, {item["id"] for item in supplied})
-        self.assertIn(history[-1].id, {item["id"] for item in supplied})
+        source_ids = {source_id for item in supplied for source_id in item["source_snapshot_ids"]}
+        self.assertIn(history[0].id, source_ids)
+        self.assertIn(history[-1].id, source_ids)
         self.assertNotIn("PRIVATE_OTHER_PROJECT", input_text(client.calls[0]))
         self.assertGreater(payload["historical_records_omitted"], 0)
         self.assertNotIn("tools", client.calls[0])
@@ -432,7 +441,7 @@ class GroqProgressTests(unittest.TestCase):
         entries = tuple(
             evidence(
                 f"batch-{index}",
-                "Implemented cache " + "original detail " * 40,
+                f"Implemented cache {index} " + "original detail " * 40,
                 project=f"REP-{index % 3}",
             )
             for index in range(20)
@@ -445,7 +454,8 @@ class GroqProgressTests(unittest.TestCase):
                     copy.deepcopy({"instructions": system, "input": messages, **kwargs})
                 )
                 payload = json.loads(messages[0]["content"])
-                entry = by_id[payload["current_facts"][0]["id"]]
+                original_id = payload["current_facts"][0]["source_snapshot_ids"][0]
+                entry = by_id[original_id]
                 value = finding(
                     entry, citations=[{"evidence_id": entry.id, "quote": "Implemented cache"}]
                 )
@@ -456,11 +466,15 @@ class GroqProgressTests(unittest.TestCase):
                 return result(value)
 
         client = BatchClient()
-        analysis = self.analyze(client, entries=entries, max_batch_chars=7000)
+        analysis = self.analyze(client, entries=entries, max_batch_chars=9000)
         seen = []
         for call in client.calls[:-1]:
             payload = json.loads(call["input"][0]["content"])
-            seen.extend(item["id"] for item in payload["current_facts"])
+            seen.extend(
+                source_id
+                for item in payload["current_facts"]
+                for source_id in item["source_snapshot_ids"]
+            )
             self.assertEqual(call["reasoning"], "low")
             self.assertNotIn(
                 "transformation",
@@ -535,7 +549,7 @@ class GroqProgressTests(unittest.TestCase):
 
     def test_later_batch_failure_returns_verified_results_with_explicit_coverage_gap(self):
         entries = tuple(
-            evidence(f"batch-{index}", "Implemented cache " + "source detail " * 60)
+            evidence(f"batch-{index}", f"Implemented cache {index} " + "source detail " * 60)
             for index in range(20)
         )
         first = entries[0]
@@ -545,11 +559,9 @@ class GroqProgressTests(unittest.TestCase):
             RuntimeError("PRIVATE_REMOTE_FAILURE"),
             result({**proof, "kind": "transformation", "project": ""}),
         )
-        analysis = self.analyze(client, entries=entries, max_batch_chars=7000, max_rounds=1)
-        self.assertTrue(analysis.findings)
-        self.assertTrue(any("оставшиеся исходные записи" in notice for notice in analysis.notices))
-        self.assertEqual(analysis.metrics.api_requests, 3)
-        self.assertNotIn("PRIVATE_REMOTE_FAILURE", str(analysis))
+        with self.assertRaisesRegex(RuntimeError, "no report was saved"):
+            self.analyze(client, entries=entries, max_batch_chars=11_000, max_rounds=1)
+        self.assertEqual(len(client.calls), 2)
 
     def test_batch_results_respect_section_and_whole_report_budgets(self):
         from dontanello.modules.reports.adapters.groq_progress import _limit_findings

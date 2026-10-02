@@ -76,7 +76,8 @@ _PERSONAL_EVALUATION = re.compile(
 _ACTION = re.compile(
     r"\b(?:сделал\w*|создал\w*|создан\w*|реализовал\w*|реализован\w*|внедрил\w*|внедр[её]н\w*|обновил\w*|обновл[её]н\w*|настроил\w*|настроен\w*|"
     r"исправил\w*|исправлен\w*|проверил\w*|подтвердил\w*|нашёл\w*|нашел\w*|перевёл\w*|перевел\w*|"
-    r"запустил\w*|сохранил\w*|работает|изменил\w*|built|created|implemented|updated|configured|"
+    r"запустил\w*|сохранил\w*|работает|изменил\w*|разбирал\w*|изучал\w*|анализировал\w*|"
+    r"исследовал\w*|отлаживал\w*|built|created|implemented|updated|configured|"
     r"подготовил\w*|продублировал\w*|скопировал\w*|fixed|verified|found|launched|saved|works|changed|tested|debugged|completed)\b",
     re.IGNORECASE,
 )
@@ -167,8 +168,14 @@ def validate_analysis(
                 f"Finding {finding.kind!r} contains an unknown or inexact evidence citation"
             )
         concrete = [entry for entry in cited if entry is not None]
+        if finding.confidence not in {"high", "medium", "low"}:
+            rejected += 1
+            continue
+        if finding.confidence == "low":
+            rejected += 1
+            continue
         if any(
-            not _quote_is_grounded(citation.quote, entry.text)
+            citation.quote and not _quote_is_grounded(citation.quote, entry.text)
             for citation, entry in zip(finding.citations, concrete, strict=True)
         ):
             raise ValueError(
@@ -232,14 +239,25 @@ def _semantics_are_supported(
     if finding.kind == "blocker":
         return bool(_EXTERNAL_BLOCKER.search(current_text))
     if finding.kind == "next_step":
-        return bool(_PLAN.search(current_text))
+        return bool(_PLAN.search(current_text)) or (
+            finding.confidence == "medium"
+            and has_action_evidence(current_text)
+            and not _NEGATED_COMPLETION.search(current_text)
+        )
     if finding.kind == "learning":
         if _MASTERY.search(narrative) and not _MASTERY.search(current_text):
             return False
         if re.search(r"\bне\s+(?:понял|научил|освоил|разобрал)\w*", current_text, re.IGNORECASE):
             return False
-        return bool(_LEARNING.search(current_text) or _EXPOSURE.search(current_text)) or (
-            has_action_evidence(current_text) and not _NEGATED_COMPLETION.search(current_text)
+        return (
+            bool(_LEARNING.search(current_text) or _EXPOSURE.search(current_text))
+            or (
+                finding.confidence == "medium"
+                and len({entry.project.casefold() for entry in current}) == 1
+                and has_action_evidence(current_text)
+                and not _NEGATED_COMPLETION.search(current_text)
+            )
+            or (has_action_evidence(current_text) and not _NEGATED_COMPLETION.search(current_text))
         )
     if finding.kind in {"comparison", "trajectory"}:
         return _ordered_transition(finding, citations, period)
@@ -288,9 +306,11 @@ def _ordered_transition(finding: Finding, citations: Sequence[Evidence], period:
 
 
 def _cited_text(finding: Finding, evidence: Sequence[Evidence]) -> str:
-    identifiers = {entry.id for entry in evidence}
+    known = {entry.id: entry for entry in evidence}
     return "\n".join(
-        citation.quote for citation in finding.citations if citation.evidence_id in identifiers
+        citation.quote or known[citation.evidence_id].text
+        for citation in finding.citations
+        if citation.evidence_id in known
     )
 
 

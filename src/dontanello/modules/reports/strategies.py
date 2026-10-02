@@ -21,7 +21,7 @@ _WEEKLY_SECTIONS = (
         "🏆 Главное изменение недели",
         ("transformation",),
         1,
-        "Name the most meaningful verified change in 2–4 sentences.",
+        "Describe the strongest progress trajectory relative to the week start. Do not lead with blockers. Use multiple connected events when one proves only part of the progression.",
     ),
     SectionSpec(
         "progress",
@@ -49,14 +49,14 @@ _WEEKLY_SECTIONS = (
         "⏸️ Что сейчас зависит не от меня",
         ("blocker",),
         5,
-        "Describe own completed part → concrete external dependency; never infer a blocker from unfinished work alone.",
+        "Merge current external dependencies by project, using the latest dated state. Mention older blockers only when they explain a resolved transition.",
     ),
     SectionSpec(
         "next",
         "🎯 Что продолжить на следующей неделе",
         ("next_step",),
         5,
-        "Only include an action already stated as a plan or continuation.",
+        "Derive a next concrete action from the latest state of an existing project when reasonable. Do not create a new project or change the user's goal.",
     ),
     SectionSpec(
         "ideas",
@@ -73,7 +73,7 @@ _MONTHLY_SECTIONS = (
         "🚀 Главная трансформация месяца",
         ("transformation",),
         1,
-        "Explain the month's most meaningful verified change in 3–6 sentences.",
+        "Explain the month's strongest trajectory from beginning state to end state. Do not lead with blockers or activity counts.",
     ),
     SectionSpec(
         "achievements",
@@ -122,7 +122,7 @@ _MONTHLY_SECTIONS = (
         "🎯 Фокус следующего месяца",
         ("next_step",),
         5,
-        "Only include an action already stated as a plan or continuation.",
+        "Derive a next concrete action from the latest state of an existing project when reasonable. Do not create a new project or change the user's goal.",
     ),
     SectionSpec(
         "reflection",

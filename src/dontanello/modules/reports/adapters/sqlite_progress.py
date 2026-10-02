@@ -205,6 +205,10 @@ def _encode(document: ProgressDocument) -> str:
                     "text": item.text,
                     "source_kind": item.source_kind,
                     "url": item.url,
+                    "source_ids": list(item.source_ids),
+                    "event_type": item.event_type,
+                    "first_recorded_at": item.first_recorded_at,
+                    "observation_count": item.observation_count,
                 }
                 for item in document.evidence
             ],
@@ -230,6 +234,7 @@ def _finding_dict(finding: Finding) -> dict[str, object]:
         "after_ids": list(finding.after_ids),
         "area": finding.area,
         "status": finding.status,
+        "confidence": finding.confidence,
     }
 
 
@@ -266,6 +271,7 @@ def _decode(payload: str) -> ProgressDocument:
                         after_ids=tuple(finding["after_ids"]),
                         area=finding["area"],
                         status=finding.get("status", ""),
+                        confidence=finding.get("confidence", "medium"),
                     )
                     for finding in section["findings"]
                 ),
@@ -282,6 +288,10 @@ def _decode(payload: str) -> ProgressDocument:
                 text=item["text"],
                 source_kind=item["source_kind"],
                 url=item["url"],
+                source_ids=tuple(item.get("source_ids", ())),
+                event_type=item.get("event_type", "observation"),
+                first_recorded_at=item.get("first_recorded_at", ""),
+                observation_count=item.get("observation_count", 1),
             )
             for item in value["evidence"]
         ),

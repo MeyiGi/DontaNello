@@ -16,6 +16,10 @@ class Evidence:
     text: str
     source_kind: str
     url: str = ""
+    source_ids: tuple[str, ...] = ()
+    event_type: str = "observation"
+    first_recorded_at: str = ""
+    observation_count: int = 1
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,7 @@ class Finding:
     after_ids: tuple[str, ...] = ()
     area: str = ""
     status: str = ""
+    confidence: str = "medium"
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,10 @@ class AnalysisMetrics:
     input_tokens: int = 0
     output_tokens: int = 0
     cached_input_tokens: int = 0
+    records_total: int = 0
+    records_processed: int = 0
+    events_created: int = 0
+    projects_covered: int = 0
 
 
 @dataclass(frozen=True)
