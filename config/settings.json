@@ -14,7 +14,7 @@
       "max_batch_chars": 10000,
       "max_batches": 24,
       "max_requests": 48,
-      "max_output_tokens": 3000,
+      "max_output_tokens": 4500,
       "max_input_chars": 160000,
       "max_history_records": 80,
       "timeout_seconds": 180,

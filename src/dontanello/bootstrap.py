@@ -202,7 +202,7 @@ def build_runtime(settings: Settings) -> Runtime:
             settings.groq_model,
             api_keys=settings.groq_api_keys,
             timeout=ai.get("timeout_seconds", 180),
-            max_output_tokens=ai.get("max_output_tokens", 3_000),
+            max_output_tokens=ai.get("max_output_tokens", 4_500),
         )
         runtime.progress = ProgressReports(
             report_sources,

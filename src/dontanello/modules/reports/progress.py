@@ -175,9 +175,9 @@ def _document_evidence(
 def _add_notice(sections: tuple[ReportSection, ...], notice: str) -> tuple[ReportSection, ...]:
     if not sections:
         return sections
-    first = sections[0]
-    note = f"{first.note}\n{notice}".strip()
-    return (ReportSection(first.key, first.title, first.findings, note), *sections[1:])
+    last = sections[-1]
+    note = f"{last.note}\n{notice}".strip()
+    return (*sections[:-1], ReportSection(last.key, last.title, last.findings, note))
 
 
 def _aware(value: datetime) -> datetime:

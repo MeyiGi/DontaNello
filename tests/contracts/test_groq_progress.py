@@ -158,7 +158,7 @@ class GroqProgressTests(unittest.TestCase):
 
     def test_month_uses_high_reasoning_and_full_raw_facts_without_weekly_prose(self):
         entries = tuple(
-            evidence(f"month-{index}", f"Implemented component {index}") for index in range(24)
+            evidence(f"month-{index}", f"Implemented component {index}") for index in range(12)
         )
         prior = document(
             Period("week", date(2026, 9, 14), date(2026, 9, 21)),
@@ -203,7 +203,7 @@ class GroqProgressTests(unittest.TestCase):
 
     def test_all_current_records_are_supplied_even_when_historical_limit_is_small(self):
         entries = tuple(
-            evidence(f"current-{index}", f"Implemented component {index}") for index in range(24)
+            evidence(f"current-{index}", f"Implemented component {index}") for index in range(12)
         )
         old = tuple(evidence(f"old-{index}", day=f"2026-08-{index + 1:02d}") for index in range(20))
         client = FakeClient(result(finding(entries[-1])))

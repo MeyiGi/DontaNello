@@ -233,7 +233,8 @@ class ProgressReportsTests(unittest.TestCase):
         self.assertFalse(
             next(section for section in doc.sections if section.key == "next").findings
         )
-        self.assertIn("Снято неподтверждённых", doc.sections[0].note)
+        self.assertIn("Снято неподтверждённых", doc.sections[-1].note)
+        self.assertNotIn("Снято неподтверждённых", doc.sections[0].note)
 
     def test_duplicate_source_versions_get_distinct_stable_evidence_ids(self):
         first = item(
@@ -815,3 +816,25 @@ class InformalProgressRegressionTests(unittest.TestCase):
         idea = Finding("idea", entry.project, "Идея найти SQL.", (Citation(entry.id, text),))
         accepted = validate_analysis(Analysis((plan, idea)), self.strategy, (entry,), self.period)
         self.assertEqual(accepted.findings, (plan,))
+
+
+class ProgressFieldLabelRegressionTests(unittest.TestCase):
+    def test_field_label_and_task_creation_do_not_prove_project_progress(self):
+        period = Period("week", date(2026, 9, 21), date(2026, 9, 28))
+        for text in (
+            "Что сделал: Просмотрел список чатов.",
+            "Что сделал: Создал новую задачу.",
+            "Подготовил идею автоматизации.",
+            "Не подготовил описание проблемы.",
+            "Не скопировал рабочую версию.",
+        ):
+            with self.subTest(text=text):
+                source = collect_evidence((item("one", "REP-1", "2026-09-22", details=text),))[0]
+                claim = Finding(
+                    "progress", source.project, "Проект продвинулся.", (Citation(source.id, text),)
+                )
+                self.assertFalse(
+                    validate_analysis(
+                        Analysis((claim,)), WeeklyStrategy().specification(), (source,), period
+                    ).findings
+                )

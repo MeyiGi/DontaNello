@@ -116,7 +116,7 @@ def load_settings(root: Path) -> Settings:
         ("max_batch_chars", 10_000, 20_000),
         ("max_batches", 24, 48),
         ("max_requests", 48, 96),
-        ("max_output_tokens", 3_000, 8_000),
+        ("max_output_tokens", 4_500, 8_000),
         ("max_input_chars", 160_000, 500_000),
         ("max_history_records", 80, 500),
         ("timeout_seconds", 180, 600),

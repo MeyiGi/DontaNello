@@ -31,7 +31,7 @@ _COMPLETION = re.compile(
 _NEGATED_COMPLETION = re.compile(
     r"\b(?:не|not|never|didn't|doesn't)\s+(?:\w+\s+){0,2}"
     r"(?:сделал|создал|создан|решил|реш[её]н|реализовал|реализован|выполнил|выполнен|завершил|заверш[её]н|исправил|исправлен|"
-    r"закрыл|работает|сохраняет|готов|completed|implemented|fixed|work|save)\w*",
+    r"закрыл|подготовил|продублировал|скопировал|проверил|запустил|сохранил|обновил|настроил|работает|сохраняет|готов|completed|implemented|fixed|work|save)\w*",
     re.IGNORECASE,
 )
 _EXTERNAL_BLOCKER = re.compile(
@@ -49,6 +49,8 @@ _PLAN = re.compile(
     r"следующ(?:ий|им) шаг(?:ом)?\s*[:—-]\s*(?:проверить|добавить|создать|реализовать|внедрить|настроить|"
     r"продолжить|вернуться|завершить|обновить|выполнить|поговорить|написать|найти|определить|разобрать|посмотреть|проанализировать|изучить)|"
     r"next step\s*[:—-]\s*(?:check|add|create|implement|configure|continue|return|finish|update|talk|write)|"
+    r"(?<!не )\b(?:надо|нужно|необходимо)\s+(?:проверить|найти|определить|добавить|создать|реализовать|улучшить|посмотреть)|"
+    r"\b(?:улучшу|проверю|посмотрю|найду|определю|реализую|напишу)\b|"
     r"will continue|planned to|plan to|committed to)",
     re.IGNORECASE,
 )
@@ -75,7 +77,7 @@ _ACTION = re.compile(
     r"\b(?:сделал\w*|создал\w*|создан\w*|реализовал\w*|реализован\w*|внедрил\w*|внедр[её]н\w*|обновил\w*|обновл[её]н\w*|настроил\w*|настроен\w*|"
     r"исправил\w*|исправлен\w*|проверил\w*|подтвердил\w*|нашёл\w*|нашел\w*|перевёл\w*|перевел\w*|"
     r"запустил\w*|сохранил\w*|работает|изменил\w*|built|created|implemented|updated|configured|"
-    r"fixed|verified|found|launched|saved|works|changed|tested|debugged|completed)\b",
+    r"подготовил\w*|продублировал\w*|скопировал\w*|fixed|verified|found|launched|saved|works|changed|tested|debugged|completed)\b",
     re.IGNORECASE,
 )
 _STATUS_PROOF = {
@@ -217,7 +219,7 @@ def _semantics_are_supported(
     if finding.kind == "achievement":
         # Work logs describe activity unless their cited excerpt explicitly proves a result.
         return not _PARTIAL_RESULT.search(result_text) and (
-            _has_result(result_text)
+            has_result_evidence(result_text)
             or (
                 all(
                     entry.source_kind in {"tasks", "goals", "completion"}
@@ -237,12 +239,12 @@ def _semantics_are_supported(
         if re.search(r"\bне\s+(?:понял|научил|освоил|разобрал)\w*", current_text, re.IGNORECASE):
             return False
         return bool(_LEARNING.search(current_text) or _EXPOSURE.search(current_text)) or (
-            _has_action(current_text) and not _NEGATED_COMPLETION.search(current_text)
+            has_action_evidence(current_text) and not _NEGATED_COMPLETION.search(current_text)
         )
     if finding.kind in {"comparison", "trajectory"}:
         return _ordered_transition(finding, citations, period)
     if finding.kind == "transformation":
-        return _has_action(result_text) or _has_result(result_text)
+        return has_action_evidence(result_text) or has_result_evidence(result_text)
     if finding.kind == "idea":
         # An idea may be mentioned as an idea, but cannot be passed off as a completed result.
         return bool(re.search(r"\b(?:иде[яиюйе]\w*|idea|concept)\b", current_text, re.IGNORECASE))
@@ -260,7 +262,7 @@ def _semantics_are_supported(
     if finding.kind == "pattern":
         return len({entry.id for entry in current}) >= 2
     if finding.kind == "progress":
-        return _has_action(result_text) or _has_result(result_text)
+        return has_action_evidence(result_text) or has_result_evidence(result_text)
     return bool(citations)
 
 
@@ -292,7 +294,7 @@ def _cited_text(finding: Finding, evidence: Sequence[Evidence]) -> str:
     )
 
 
-def _has_result(text: str) -> bool:
+def has_result_evidence(text: str) -> bool:
     """A planned or negated clause cannot prove completion."""
     return any(
         _COMPLETION.search(clause)
@@ -303,9 +305,14 @@ def _has_result(text: str) -> bool:
     )
 
 
-def _has_action(text: str) -> bool:
+def has_action_evidence(text: str) -> bool:
     return any(
         _ACTION.search(clause)
+        and not re.search(
+            r"\b(?:создал|добавил|подготовил)\s+(?:новую\s+)?(?:задачу|идею|план|TODO)\b",
+            clause,
+            re.IGNORECASE,
+        )
         and not _INTENT.search(clause)
         and not _NEGATED_COMPLETION.search(clause)
         for clause in _result_clauses(text)
@@ -314,11 +321,20 @@ def _has_action(text: str) -> bool:
 
 def _result_clauses(text: str) -> list[str]:
     """Separate an observed result from a trailing plan in informal notes."""
-    return re.split(
+    clauses = re.split(
         r"[;.!?\n]+|(?=\b(?:нужно|надо|необходимо|предстоит|планирую)\b)",
         text,
         flags=re.IGNORECASE,
     )
+    return [
+        re.sub(
+            r"^\s*(?:Что сделал|Результат|Следующий шаг|Состояние|Заметки|Причина ожидания)\s*:\s*",
+            "",
+            clause,
+            flags=re.IGNORECASE,
+        )
+        for clause in clauses
+    ]
 
 
 def _project_name(title: str) -> str:
@@ -331,7 +347,9 @@ def _project_name(title: str) -> str:
         flags=re.IGNORECASE,
     )
     value = _DATE_OR_TIME.sub(" ", value)
-    value = re.sub(r"\b(?:snapshot|снимок)\b", " ", value, flags=re.IGNORECASE)
+    value = re.sub(
+        r"\b(?:snapshot|снимок|зафиксировано текущее состояние)\b", " ", value, flags=re.IGNORECASE
+    )
     return _WHITESPACE.sub(" ", value).strip(" -–—|:[]()").casefold() or "Без названия"
 
 
