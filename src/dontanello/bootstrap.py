@@ -23,14 +23,15 @@ from dontanello.modules.operations.adapters.serialized_monitor import Serialized
 from dontanello.modules.operations.adapters.telegram import TelegramAlertSender
 from dontanello.modules.reports import (
     DeliveryService,
-    NarrativeReports,
     Period,
+    ProgressReports,
     ScheduledReports,
     build_report,
 )
-from dontanello.modules.reports.adapters.groq import GroqSummaryGenerator
+from dontanello.modules.reports.adapters.groq_progress import GroqProgressAnalyzer
 from dontanello.modules.reports.adapters.notion import NotionReportConfig, NotionReportSource
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
+from dontanello.modules.reports.adapters.sqlite_progress import SQLiteProgressArchive
 from dontanello.modules.reports.adapters.telegram import TelegramReportSender
 from dontanello.platform.clock import LocalClock
 from dontanello.platform.settings import Settings
@@ -44,6 +45,7 @@ class Runtime:
     report_sources: list[NotionReportSource] = field(default_factory=list)
     monitor: SerializedMonitor | None = None
     outcomes: SimpleQueue[tuple[str, bool, datetime]] = field(default_factory=SimpleQueue)
+    progress: ProgressReports | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -51,12 +53,9 @@ class Runtime:
     def report(self, period: Period, full: bool = False) -> str:
         if full:
             return build_report(period, self.report_sources, compact=False)
-        if not self.settings.groq_api_key:
-            raise ValueError("GROQ_API_KEY не задан для смысловых отчётов")
-        generator = GroqSummaryGenerator(
-            GroqClient(self.settings.groq_api_key, self.settings.groq_model)
-        )
-        return NarrativeReports(self.report_sources, generator).build(period)
+        if self.progress is None:
+            raise ValueError("GROQ_API_KEY не задан для отчётов")
+        return self.progress.report(period)
 
     def check(self) -> None:
         for source in self.sources:
@@ -81,9 +80,13 @@ class Runtime:
                     raise ValueError(f"Report {report_source.config.name}: invalid field {name}")
             print("Report source: " + report_source.config.name + " OK")
         if self.settings.groq_api_key:
-            available = GroqClient(self.settings.groq_api_key, self.settings.groq_model).models()
-            if self.settings.groq_model not in available:
-                raise ValueError("Настроенная Groq модель недоступна этому ключу")
+            models = GroqClient(
+                self.settings.groq_api_key,
+                self.settings.groq_model,
+                api_keys=self.settings.groq_api_keys,
+            ).models()
+            if self.settings.groq_model not in models:
+                raise ValueError("GROQ_MODEL недоступна")
             print("Groq: " + self.settings.groq_model + " OK")
 
     def jobs(self) -> list[Job]:
@@ -191,7 +194,37 @@ def build_runtime(settings: Settings) -> Runtime:
         NotionReportSource(client, NotionReportConfig(**source), settings.timezone)
         for source in settings.config.get("reports", {}).get("sources", [])
     ]
-    return Runtime(settings, sources, report_sources)
+    runtime = Runtime(settings, sources, report_sources)
+    if settings.groq_api_key:
+        ai = settings.config.get("reports", {}).get("ai", {})
+        engine = GroqClient(
+            settings.groq_api_key,
+            settings.groq_model,
+            api_keys=settings.groq_api_keys,
+            timeout=ai.get("timeout_seconds", 180),
+            max_output_tokens=ai.get("max_output_tokens", 3_000),
+        )
+        runtime.progress = ProgressReports(
+            report_sources,
+            GroqProgressAnalyzer(
+                engine,
+                max_rounds=ai.get("max_rounds", 3),
+                max_batch_chars=ai.get("max_batch_chars", 10_000),
+                max_batches=ai.get("max_batches", 24),
+                max_requests=ai.get("max_requests", 48),
+                max_input_chars=ai.get("max_input_chars", 160_000),
+                max_history_records=ai.get("max_history_records", 80),
+                reasoning={
+                    "week": ai.get("weekly_reasoning", "medium"),
+                    "month": ai.get("monthly_reasoning", "high"),
+                },
+                scope=settings.telegram_chat_id or "owner",
+            ),
+            SQLiteProgressArchive(settings.root / "state" / "progress.sqlite3"),
+            settings.telegram_chat_id or "owner",
+            clock=runtime.now,
+        )
+    return runtime
 
 
 def verify_backup(root: Path, snapshot_name: str) -> None:

@@ -9,6 +9,18 @@
     "enabled": true,
     "hour": 9,
     "minute": 0,
+    "ai": {
+      "max_rounds": 3,
+      "max_batch_chars": 10000,
+      "max_batches": 24,
+      "max_requests": 48,
+      "max_output_tokens": 3000,
+      "max_input_chars": 160000,
+      "max_history_records": 80,
+      "timeout_seconds": 180,
+      "weekly_reasoning": "medium",
+      "monthly_reasoning": "high"
+    },
     "sources": [
       {"id": "c0b43782-a882-83c8-9d1a-87dd25beebaf", "name": "Задачи", "date_property": "Completed On", "title_property": "Name", "checkbox_properties": ["Сделано", "Готово"], "completed_property": "Completed", "excluded_status_property": "List", "excluded_status_values": ["Cancel ❌"]},
       {"id": "e1691e60-5630-4859-b174-0ca8df716381", "name": "Цели", "date_property": "Completed on", "title_property": "Goal", "checkbox_properties": ["Checkbox"]},

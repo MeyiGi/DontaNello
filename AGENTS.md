@@ -11,11 +11,10 @@ This is a lifelong, extensible personal automation assistant. Maintainability an
 
 # Agent orchestration
 
-- The primary agent remains the master/orchestrator and delegates suitable subtasks to `gpt-6-luna` agents with `reasoning_effort="high"`. Delegate substantive, separable work by default; trivial one-step edits may stay inline.
-- The primary agent owns architecture, contracts, task decomposition, review, integration, final checks and user communication. Delegate bounded investigation, implementation, tests or review; avoid conflicting concurrent file ownership. Run dependent tasks sequentially and independent tasks in parallel within available slots.
-- Spawn Luna agents with `model="gpt-6-luna"`, `reasoning_effort="high"`, and `fork_turns="none"` or selective numeric context; model overrides are not supported with `fork_turns="all"`. Give each agent explicit task, context, files, contracts and acceptance checks.
-- Agents follow this file and `docs/architecture.md`. The primary agent verifies diffs and required checks rather than relying only on agent reports. If Luna is unavailable, do not silently switch to another model; disclose this and continue inline where appropriate.
-- This is a development workflow only, not a multi-agent feature in the deployed assistant runtime.
+- The primary agent owns architecture, contracts, decomposition, review, integration, checks and user communication. Use `gpt-6.1-sol` focused subagents only when independent work and separate context improve quality or time; never create a fixed swarm or mandatory verifier.
+- Sol is the requested development-agent intelligence layer. Delegate bounded tasks with explicit ownership and acceptance checks; synthesize findings at root and use targeted follow-up when evidence is questionable. Do not silently switch models when unavailable.
+- Development-agent delegation and deployed report analysis are distinct. Runtime reports use the existing Groq credentials and configured Groq model; do not require an OpenAI API key or native multi-agent API. Small inputs use one analysis request with bounded corrections; large periods use bounded sequential batches and final synthesis with the same citation guards. Every current fact reaches analysis; validated results are saved before stopping. Batches are not agents.
+- Read docs/architecture.md. Preserve evidence, authorization and storage boundaries. Keep orchestration, progress intelligence and presentation separate.
 
 # Architecture rules
 
@@ -40,12 +39,13 @@ This is a lifelong, extensible personal automation assistant. Maintainability an
 # Reliable automation
 
 - Define identity, retries, idempotency, time zone and restart behavior for every external side effect. Never claim exactly-once delivery across external APIs without a proven guarantee.
-- Isolate job failures: one integration's outage must not disable unrelated automations. Bound network waits and retry budgets.
+- Isolate job failures: one integration's outage must not disable unrelated automations. Bound network waits and retry budgets. Groq may fail over through the configured key pool only after explicit HTTP 429; count failed key attempts in the analysis budget, keep cooldown state in memory, and never log keys. Shared organization quotas and restart rechecks remain possible.
 - Persist scheduled execution/delivery state before enabling recurring reports; define recovery and duplicate behavior.
 - Authorization checks for Telegram must precede private reads and actions. Never log tokens or include them in committed files or test fixtures.
 - Future group features must use explicit chat-specific capabilities and separate data scopes. A couple's group must never inherit personal task/work commands, Notion access or report destinations. Enforce this in application authorization before data reads; keep LLM context scoped to the authorized chat. Group support is not currently implemented.
 - `.env.example` must contain empty credential fields. Before each commit/push, run `rtk proxy python3 scripts/check_secrets.py --staged` and stop immediately on any failure; never continue to commit/push after a failed secret check. Enable the local hook with `rtk git config core.hooksPath .githooks`.
-- Default personal reports must explain meaningful progress and results, group repeated records by project, and distinguish activity from completion. Use the configured Groq summarizer; do not silently substitute a row dump or fabricate accomplishments. `/week full` and `/month full` remain explicit raw diagnostics.
+- Default personal reports must explain meaningful progress and results, group repeated records by project, and distinguish activity from completion. Use the configured Groq progress analyzer; do not silently substitute a row dump or fabricate accomplishments. `/week full` and `/month full` remain explicit raw diagnostics.
+- Progress reviews use the shared fact pipeline and separate report strategies. Preserve source evidence and exact citations in the scoped archive; prior generated prose is never independent evidence. Keep progress, learning and comparisons before blockers and next steps. Never turn ideas, intentions or suspected causes into completed results. When historical data is missing, state the gap; do not invent a baseline or infer a personality change. Preserve period/delivery identities when evolving report formats.
 - LLMs, if added, propose actions through explicit application contracts; permission checks and execution stay deterministic. Existing user authorization governs whether confirmation is needed.
 
 # Workflow and verification

@@ -19,6 +19,7 @@ class Settings:
     telegram_chat_id: str = field(default="", repr=False)
     groq_api_key: str = field(default="", repr=False)
     groq_model: str = "openai/gpt-oss-120b"
+    groq_api_keys: tuple[str, ...] = field(default=(), repr=False)
 
 
 def load_settings(root: Path) -> Settings:
@@ -89,11 +90,43 @@ def load_settings(root: Path) -> Settings:
         except ValueError:
             raise ValueError("TELEGRAM_CHAT_ID должен быть положительным ID личного чата") from None
     groq_key = environment.get("GROQ_API_KEY", "").strip()
+    groq_keys = tuple(
+        dict.fromkeys(
+            key
+            for key in (
+                groq_key,
+                *(part.strip() for part in environment.get("GROQ_API_KEYS", "").split(",")),
+            )
+            if key
+        )
+    )
+    if len(groq_keys) > 10:
+        raise ValueError("GROQ_API_KEYS допускает максимум 10 уникальных ключей")
+    groq_key = groq_keys[0] if groq_keys else ""
     groq_model = environment.get("GROQ_MODEL", "openai/gpt-oss-120b").strip()
-    if reports.get("enabled") and not groq_key:
-        raise ValueError("Включённые отчёты требуют GROQ_API_KEY")
     if groq_key and not groq_model:
         raise ValueError("GROQ_MODEL не задан")
+    if reports.get("enabled") and not groq_key:
+        raise ValueError("Включённые отчёты требуют GROQ_API_KEY")
+    ai = reports.get("ai", {})
+    if not isinstance(ai, dict):
+        raise ValueError("reports.ai должен быть объектом")
+    for name, default, maximum in (
+        ("max_rounds", 3, 3),
+        ("max_batch_chars", 10_000, 20_000),
+        ("max_batches", 24, 48),
+        ("max_requests", 48, 96),
+        ("max_output_tokens", 3_000, 8_000),
+        ("max_input_chars", 160_000, 500_000),
+        ("max_history_records", 80, 500),
+        ("timeout_seconds", 180, 600),
+    ):
+        value = ai.get(name, default)
+        if type(value) is not int or not 1 <= value <= maximum:
+            raise ValueError(f"Некорректный лимит reports.ai.{name}")
+    for name, effort_default in (("weekly_reasoning", "medium"), ("monthly_reasoning", "high")):
+        if ai.get(name, effort_default) not in {"low", "medium", "high"}:
+            raise ValueError(f"reports.ai.{name} должен быть low/medium/high")
     return Settings(
         root=root,
         notion_token=token,
@@ -104,4 +137,5 @@ def load_settings(root: Path) -> Settings:
         telegram_chat_id=chat_id,
         groq_api_key=groq_key,
         groq_model=groq_model,
+        groq_api_keys=groq_keys,
     )

@@ -72,7 +72,7 @@ class ProgressArchiveContractTests(unittest.TestCase):
         expected = replace(
             expected,
             analysis_metrics=AnalysisMetrics(
-                model="gpt-6.1-sol",
+                model="openai/gpt-oss-120b",
                 reasoning="medium",
                 api_requests=1,
                 subagents=0,
