@@ -52,6 +52,33 @@ class BackupContractTests(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_progress_archive_wal_data_is_backed_up_and_restored_by_default(self):
+        database_path = self.root / "state" / "progress.sqlite3"
+        connection = sqlite3.connect(database_path)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE progress (value TEXT)")
+        connection.execute("INSERT INTO progress VALUES ('before snapshot')")
+        connection.commit()
+        self.store.create(datetime(2026, 9, 28).date())
+        connection.execute("INSERT INTO progress VALUES ('after snapshot')")
+        connection.commit()
+        connection.close()
+
+        snapshot_db = self.root / "state" / "backups" / "2026-09-28" / "state" / "progress.sqlite3"
+        with sqlite3.connect(snapshot_db) as backup:
+            self.assertEqual(
+                backup.execute("SELECT value FROM progress").fetchall(), [("before snapshot",)]
+            )
+
+        self.store.restore("2026-09-28")
+
+        self.assertFalse(Path(str(database_path) + "-wal").exists())
+        self.assertFalse(Path(str(database_path) + "-shm").exists())
+        with sqlite3.connect(database_path) as restored:
+            self.assertEqual(
+                restored.execute("SELECT value FROM progress").fetchall(), [("before snapshot",)]
+            )
+
     def test_retention_prunes_only_owned_date_snapshots(self):
         service = BackupService(self.store, retention=2)
         for day in range(1, 5):

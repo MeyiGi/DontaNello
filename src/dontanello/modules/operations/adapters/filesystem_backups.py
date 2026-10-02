@@ -20,6 +20,7 @@ class FileBackupStore:
         "state/alerts.json",
         "state/telegram_cursor.json",
         "state/reports.sqlite3",
+        "state/progress.sqlite3",
         "config/settings.json",
     )
     REQUIRED = "state/checkboxes.json"
@@ -66,12 +67,16 @@ class FileBackupStore:
         with closing(sqlite3.connect(source_uri, uri=True, timeout=10)) as source_db:
             result = source_db.execute("PRAGMA integrity_check").fetchone()
             if result is None or result[0] != "ok":
-                raise ValueError("Reports database failed integrity check")
+                raise ValueError(f"SQLite database failed integrity check: {source.name}")
             with closing(sqlite3.connect(destination, timeout=10)) as target_db:
                 source_db.backup(target_db)
+                # WAL mode is copied with the database header. Snapshots are
+                # standalone files, so leave the copied pages in a sidecar-free
+                # DELETE-journal database after the online backup completes.
+                target_db.execute("PRAGMA journal_mode = DELETE")
                 target_check = target_db.execute("PRAGMA integrity_check").fetchone()
                 if target_check is None or target_check[0] != "ok":
-                    raise ValueError("Snapshot database failed integrity check")
+                    raise ValueError(f"Snapshot database failed integrity check: {source.name}")
 
     def create(self, day: date) -> None:
         destination = self._snapshot(day)
@@ -94,7 +99,7 @@ class FileBackupStore:
                     raise ValueError(f"Backup source must be a regular file: {relative}")
                 target = staging / relative
                 target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                if relative == "state/reports.sqlite3":
+                if relative.endswith(".sqlite3"):
                     self._sqlite_backup(source, target)
                 else:
                     self._validate_json(source, checkbox=relative == self.REQUIRED)
@@ -197,18 +202,22 @@ class FileBackupStore:
         snapshot, manifest = self._read_manifest(snapshot_name)
         files: dict[str, str] = manifest["files"]
         selected = [relative for relative in self.ALLOWED if relative in files]
-        report_path = "state/reports.sqlite3"
-        restore_database = report_path in files and (
-            restore_delivery_history or not (self.root / report_path).exists()
+        delivery_path = "state/reports.sqlite3"
+        progress_path = "state/progress.sqlite3"
+        restore_delivery = delivery_path in files and (
+            restore_delivery_history or not (self.root / delivery_path).exists()
         )
         restore_files = [
-            relative for relative in selected if relative != report_path or restore_database
+            relative for relative in selected if relative != delivery_path or restore_delivery
         ]
 
         targets = {relative: self._check_restore_target(relative) for relative in selected}
-        if restore_database:
+        databases_to_restore = [
+            relative for relative in restore_files if relative in (delivery_path, progress_path)
+        ]
+        for database_path in databases_to_restore:
             for suffix in ("-wal", "-shm"):
-                sidecar = self._check_restore_target(report_path + suffix)
+                sidecar = self._check_restore_target(database_path + suffix)
                 if sidecar.exists() and not sidecar.is_file():
                     raise ValueError(f"Restore sidecar is not a regular file: {sidecar.name}")
 
@@ -236,9 +245,10 @@ class FileBackupStore:
             for relative in restore_files:
                 staged[relative].replace(targets[relative])
                 os.chmod(targets[relative], 0o600)
-                if relative == report_path:
+                if relative in (delivery_path, progress_path):
                     for suffix in ("-wal", "-shm"):
-                        (self.root / (report_path + suffix)).unlink(missing_ok=True)
+                        sidecar = self._check_restore_target(relative + suffix)
+                        sidecar.unlink(missing_ok=True)
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 

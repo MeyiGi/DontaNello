@@ -27,6 +27,7 @@ class ArchitectureTests(unittest.TestCase):
             "dataclasses",
             "datetime",
             "enum",
+            "hashlib",
             "re",
             "typing",
         }
