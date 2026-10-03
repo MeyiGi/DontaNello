@@ -12,7 +12,7 @@
     "ai": {
       "max_rounds": 3,
       "max_batch_chars": 10000,
-      "max_batches": 24,
+      "max_batches": 32,
       "max_requests": 48,
       "max_output_tokens": 4500,
       "max_input_chars": 160000,

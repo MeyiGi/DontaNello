@@ -491,6 +491,34 @@ class GroqProgressTests(unittest.TestCase):
         self.assertEqual(analysis.metrics.api_requests, len(client.calls))
         self.assertLessEqual(len(client.calls), 48)
 
+    def test_eighty_four_records_fit_configured_batch_budget_without_omissions(self):
+        entries = tuple(
+            evidence(
+                f"period-{index}",
+                f"REP-{index % 8} — результат недели {index}: " + "исходные детали " * 24,
+                project=f"REP-{index % 8}",
+            )
+            for index in range(84)
+        )
+
+        class CoverageClient(FakeClient):
+            def structured_complete(self, system, messages, **kwargs):
+                self.calls.append(
+                    copy.deepcopy({"instructions": system, "input": messages, **kwargs})
+                )
+                return result()
+
+        client = CoverageClient()
+        self.analyze(client, entries=entries, max_batch_chars=10_000, max_batches=32)
+        seen = [
+            source_id
+            for call in client.calls
+            for item in json.loads(call["input"][0]["content"])["current_facts"]
+            for source_id in item["source_snapshot_ids"]
+        ]
+        self.assertCountEqual(seen, [entry.id for entry in entries])
+        self.assertLessEqual(len(client.calls), 32)
+
     def test_batch_preflight_fails_before_request_without_dropping_large_original(self):
         entries = (
             self.current,

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from dontanello.integrations.groq.client import GroqClient
 
 
-def http_error(status, retry_after=None):
+def http_error(status, retry_after=None, body=b"remote response contains fixture-key"):
     headers = Message()
     if retry_after is not None:
         headers["Retry-After"] = str(retry_after)
@@ -17,7 +17,7 @@ def http_error(status, retry_after=None):
         status,
         "remote response contains fixture-key",
         headers,
-        io.BytesIO(b"remote response contains fixture-key"),
+        io.BytesIO(body),
     )
 
 

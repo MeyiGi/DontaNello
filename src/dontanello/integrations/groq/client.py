@@ -29,9 +29,10 @@ class CompletionResult:
 
 
 class GroqRequestError(RuntimeError):
-    def __init__(self, message: str, api_requests: int):
+    def __init__(self, message: str, api_requests: int, code: str | None = None):
         super().__init__(message)
         self.api_requests = api_requests
+        self.code = code
 
 
 class GroqRateLimitError(GroqRequestError):
@@ -134,14 +135,42 @@ class GroqClient:
         # The report adapter owns the three-call budget. Do not multiply it by
         # transport retries; a scheduled retry remains the application's decision.
         attempts: list[int] = []
-        response = self._request(
-            "POST",
-            "chat/completions",
-            payload,
-            retry_budget=0,
-            remaining_requests=remaining_requests,
-            attempts=attempts,
-        )
+        try:
+            response = self._request(
+                "POST",
+                "chat/completions",
+                payload,
+                retry_budget=0,
+                remaining_requests=remaining_requests,
+                attempts=attempts,
+            )
+        except GroqRequestError as error:
+            if error.code != "json_validate_failed":
+                raise
+            remaining = (
+                None if remaining_requests is None else remaining_requests - error.api_requests
+            )
+            if remaining is not None and remaining <= 0:
+                raise
+            # Groq can reject an otherwise supported strict schema when the
+            # generation itself fails validation. JSON mode still gives valid
+            # JSON; the progress adapter then applies its full local guards.
+            payload["response_format"] = {"type": "json_object"}
+            try:
+                response = self._request(
+                    "POST",
+                    "chat/completions",
+                    payload,
+                    retry_budget=0,
+                    remaining_requests=remaining,
+                    attempts=attempts,
+                )
+            except GroqRateLimitError as fallback_error:
+                raise GroqRateLimitError(fallback_error.retry_after, len(attempts)) from None
+            except GroqRequestError as fallback_error:
+                raise GroqRequestError(
+                    str(fallback_error), len(attempts), fallback_error.code
+                ) from None
         try:
             decoded = json.loads(response)
             choice = decoded["choices"][0]
@@ -216,7 +245,9 @@ class GroqClient:
                     return response.read()
             except urllib.error.HTTPError as error:
                 if error.code not in (429, 503):
-                    raise GroqRequestError(f"Groq HTTP {error.code}", count) from None
+                    raise GroqRequestError(
+                        f"Groq HTTP {error.code}", count, _error_code(error)
+                    ) from None
                 if error.code == 429:
                     raw_delay = _retry_after_seconds(429, error.headers)
                     with self._pool_lock:
@@ -268,6 +299,19 @@ def _retry_delay(status: int, headers: Any) -> float | None:
     if seconds is None or seconds > _MAX_RETRY_AFTER_SECONDS:
         return None
     return seconds
+
+
+def _error_code(error: urllib.error.HTTPError) -> str | None:
+    """Extract only the provider's bounded machine-readable error code."""
+    try:
+        body = json.loads(error.read(16_384))
+    except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+        return None
+    details = body.get("error") if isinstance(body, dict) else None
+    code = details.get("code") if isinstance(details, dict) else None
+    if isinstance(code, str) and len(code) <= 80:
+        return code
+    return None
 
 
 def _retry_after_seconds(status: int, headers: Any) -> float | None:
