@@ -481,7 +481,7 @@ class ProgressReportsTests(unittest.TestCase):
         sections = WeeklyStrategy().sections(self.week, Analysis(findings))
         counts = {section.key: len(section.findings) for section in sections}
         self.assertEqual(
-            [counts[key] for key in ("progress", "learning", "comparison", "next")], [7, 5, 3, 5]
+            [counts[key] for key in ("progress", "learning", "comparison", "next")], [7, 4, 3, 5]
         )
         custom_period = Period("custom", self.week.start, self.week.end)
         reports = ProgressReports(

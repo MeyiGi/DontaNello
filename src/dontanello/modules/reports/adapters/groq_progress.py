@@ -64,6 +64,7 @@ unfinished work, focus and one closing thought. Main transformation: 3–6 sente
 Use the strategy section limits and word budget. Do not pad gaps or repeat the same result.
 All supplied events for this period must inform the analysis. Do not emit technical coverage
 diagnostics in user-facing sections.
+Write natural Russian rather than audit prose, and do not repeat one result across report sections.
 Respect the payload instruction. Extract-mode findings are investigations, not the final
 report. Full-mode synthesis determines significance using event IDs and chronology, not candidate
 prose. Return only the requested JSON. Keep findings concise.
@@ -423,21 +424,26 @@ def _payload(
     snapshots: list[dict[str, Any]],
     omitted: int,
 ) -> dict[str, Any]:
+    extraction_only = not any("transformation" in section.kinds for section in strategy.sections)
+    sections: list[dict[str, Any]] = []
+    for section in strategy.sections:
+        value = {"key": section.key, "kinds": section.kinds, "limit": section.limit}
+        if strategy.kind == "week" and not extraction_only:
+            value["instructions"] = section.instructions
+        sections.append(value)
+    strategy_payload: dict[str, Any] = {
+        "kind": strategy.kind,
+        "max_words": strategy.max_words,
+        "max_chars": strategy.max_chars,
+        "sections": sections,
+    }
     return {
         "period": {
             "kind": period.kind,
             "start": str(period.start),
             "end_exclusive": str(period.end),
         },
-        "strategy": {
-            "kind": strategy.kind,
-            "max_words": strategy.max_words,
-            "max_chars": strategy.max_chars,
-            "sections": [
-                {"key": section.key, "kinds": section.kinds, "limit": section.limit}
-                for section in strategy.sections
-            ],
-        },
+        "strategy": strategy_payload,
         "current_facts": [_record(item) for item in current],
         "project_timelines": [
             {

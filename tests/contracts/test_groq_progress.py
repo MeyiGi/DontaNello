@@ -156,6 +156,25 @@ class GroqProgressTests(unittest.TestCase):
         self.assertEqual(analysis.metrics.output_tokens, 200)
         self.assertEqual(analysis.metrics.cached_input_tokens, 500)
 
+    def test_weekly_quality_guidance_reaches_groq_without_changing_section_contract(self):
+        client = FakeClient(result(finding(self.current)))
+
+        self.analyze(client)
+
+        payload = json.loads(client.calls[0]["input"][0]["content"])
+        strategy = payload["strategy"]
+        sections = {section["key"]: section for section in strategy["sections"]}
+        self.assertNotIn("instructions", strategy)
+        self.assertEqual(
+            [section["key"] for section in strategy["sections"]],
+            ["transformation", "progress", "learning", "comparison", "blockers", "next", "ideas"],
+        )
+        self.assertIn("shared 2–4 sentence trajectory", sections["transformation"]["instructions"])
+        self.assertIn("investigation progression", sections["learning"]["instructions"])
+        self.assertIn("what the user did", sections["blockers"]["instructions"])
+        self.assertIn("3 independent steps first", sections["next"]["instructions"])
+        self.assertEqual(sections["learning"]["limit"], 4)
+
     def test_json_mode_may_omit_empty_optional_finding_fields(self):
         value = finding(self.current)
         for name in (

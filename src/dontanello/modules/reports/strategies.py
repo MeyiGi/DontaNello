@@ -21,42 +21,42 @@ _WEEKLY_SECTIONS = (
         "🏆 Главное изменение недели",
         ("transformation",),
         1,
-        "Describe the strongest progress trajectory relative to the week start. Do not lead with blockers. Use multiple connected events when one proves only part of the progression.",
+        "One shared 2–4 sentence trajectory; synthesize the common change, do not list projects or repeat Progress.",
     ),
     SectionSpec(
         "progress",
         "✅ Что реально продвинулось",
         ("progress", "achievement"),
         7,
-        "Describe concrete movement; work activity alone is not completion.",
+        "Choose 4–7 meaningful results when supported. Group by project; activity and intention are not results.",
     ),
     SectionSpec(
         "learning",
         "🧠 Чему я научился / что теперь понимаю лучше",
         ("learning",),
-        5,
-        "Give 2–5 learning points when supported. Infer modest practice or understanding from documented technical work or course exposure; do not require the literal word learned and do not imply mastery.",
+        4,
+        "Give 2–4 modest learnings; infer from investigation progression, changed hypotheses, tools or action. Match the claim to the evidence; no mastery claims.",
     ),
     SectionSpec(
         "comparison",
         "📈 Я неделю назад → я сейчас",
         ("comparison", "trajectory"),
         3,
-        "Give 1–3 comparisons when supported. Compare dated evidence in the same project; label actual dates and avoid causal claims. Current evidence must support the after state.",
+        "Give 1–3 dated before → now comparisons in the same project; do not repeat Progress details.",
     ),
     SectionSpec(
         "blockers",
         "⏸️ Что сейчас зависит не от меня",
         ("blocker",),
         5,
-        "Merge current external dependencies by project, using the latest dated state. Mention older blockers only when they explain a resolved transition.",
+        "Group by project and latest state: what the user did → current external dependency. Drop superseded blockers.",
     ),
     SectionSpec(
         "next",
         "🎯 Что продолжить на следующей неделе",
         ("next_step",),
         5,
-        "Derive a next concrete action from the latest state of an existing project when reasonable. Do not create a new project or change the user's goal.",
+        "Up to 3 independent steps first, ranked by active work and specificity; then at most 2 conditional steps. No backlog or new goals.",
     ),
     SectionSpec(
         "ideas",
@@ -141,13 +141,17 @@ class WeeklyStrategy:
         return StrategySpec(
             kind="week",
             instructions=(
-                "Write a reflective weekly progress report in Russian. Lead with meaningful progress, "
-                "then learning, dated comparison, external blockers, and already chosen next actions. "
-                "Raw activity is not completion. Separate ideas from results. Cite every finding. "
-                "Give 3–7 meaningful results when evidence supports them, 2–5 learning points, "
-                "1–3 dated comparisons and up to 5 next actions; do not pad empty sections. "
-                "Historical evidence is context, never new progress. No psychological judgments, "
-                "praise, invented KPIs or guessed causes."
+                "Write a reflective weekly progress report in Russian. Keep the existing section order: "
+                "progress, learning, dated comparison, external blockers, next actions, ideas. The main "
+                "change is one 2–4 sentence shared trajectory, not a list of projects. Keep each fact "
+                "in the section that answers its question and avoid repeating the same result across "
+                "sections. Raw activity is not completion. Separate ideas from results. Cite every "
+                "finding. Give 4–7 meaningful results and 2–4 learning points when supported, "
+                "1–3 concise dated comparisons, three prioritized independent next actions plus at most "
+                "two conditional actions, and compact current blockers grouped by project. Do not pad "
+                "empty sections. Historical evidence is context, never new progress. No psychological "
+                "judgments, praise, invented KPIs or guessed causes. Use natural Russian; state gaps "
+                "only when needed to explain uncertainty."
             ),
             sections=_WEEKLY_SECTIONS,
             max_words=700,
