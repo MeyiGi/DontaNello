@@ -156,6 +156,28 @@ class GroqProgressTests(unittest.TestCase):
         self.assertEqual(analysis.metrics.output_tokens, 200)
         self.assertEqual(analysis.metrics.cached_input_tokens, 500)
 
+    def test_json_mode_may_omit_empty_optional_finding_fields(self):
+        value = finding(self.current)
+        for name in (
+            "before",
+            "action",
+            "after",
+            "before_ids",
+            "after_ids",
+            "area",
+            "status",
+            "confidence",
+        ):
+            value.pop(name, None)
+        client = FakeClient(result(text=json.dumps({"findings": [value]})))
+
+        analysis = self.analyze(client)
+
+        self.assertEqual(len(analysis.findings), 1)
+        self.assertEqual(analysis.findings[0].confidence, "medium")
+        self.assertEqual(analysis.findings[0].before_ids, ())
+        self.assertEqual(analysis.findings[0].action, "")
+
     def test_month_uses_high_reasoning_and_full_raw_facts_without_weekly_prose(self):
         entries = tuple(
             evidence(f"month-{index}", f"Implemented component {index}") for index in range(12)

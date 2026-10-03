@@ -679,11 +679,15 @@ def _verified_response(
 ) -> tuple[Analysis, list[str], bool]:
     try:
         value = json.loads(text)
-        if set(value) != {"findings", "notices"} or not isinstance(value["findings"], list):
-            raise ValueError
-        if not isinstance(value["notices"], list) or any(
-            not isinstance(item, str) for item in value["notices"]
+        if (
+            not isinstance(value, dict)
+            or "findings" not in value
+            or set(value) - {"findings", "notices"}
+            or not isinstance(value["findings"], list)
         ):
+            raise ValueError
+        notices = value.get("notices", [])
+        if not isinstance(notices, list) or any(not isinstance(item, str) for item in notices):
             raise ValueError
     except (ValueError, TypeError):
         return Analysis(), ["Return the exact findings/notices JSON schema."], False
@@ -748,11 +752,8 @@ def _verified_response(
 
 
 def _finding(raw: Any) -> Finding:
-    names = {
-        "kind",
-        "project",
-        "text",
-        "citations",
+    required = {"kind", "project", "text", "citations"}
+    optional = {
         "before",
         "action",
         "after",
@@ -762,12 +763,20 @@ def _finding(raw: Any) -> Finding:
         "status",
         "confidence",
     }
-    if not isinstance(raw, dict) or frozenset(raw) not in {
-        frozenset(names),
-        frozenset(names - {"confidence"}),
-    }:
+    names = required | optional
+    if not isinstance(raw, dict) or not required.issubset(raw) or set(raw) - names:
         raise ValueError("Invalid finding shape")
-    raw = {**raw, "confidence": raw.get("confidence", "medium")}
+    raw = {
+        "before": "",
+        "action": "",
+        "after": "",
+        "before_ids": [],
+        "after_ids": [],
+        "area": "",
+        "status": "",
+        "confidence": "medium",
+        **raw,
+    }
     strings = names - {"citations", "before_ids", "after_ids"}
     if any(not isinstance(raw[name], str) for name in strings) or not raw["text"]:
         raise ValueError("Invalid finding values")
