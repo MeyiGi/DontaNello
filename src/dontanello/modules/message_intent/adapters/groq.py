@@ -16,7 +16,10 @@ destination is inbox, task, calendar, reminder, clarify, or other. confidence is
 
 Choose inbox for a note, idea, or something the user wants to remember or learn about.
 Choose task when the user intends a trackable action, optionally with an explicit deadline.
-Choose calendar when the user wants to reserve time or says they want to study/work on a dated day.
+Choose calendar when the user wants to reserve time or says they want to study/work on a focus
+activity, including when they give a duration without naming a day. If a calendar activity has no
+stated day, treat it as today using local_datetime and include «сегодня» in normalized_text. If its
+duration is missing, leave it missing so the calendar flow asks how long it should take.
 Choose reminder when the user asks to be notified later without reserving a calendar block.
 If an Inbox prompt is pending, treat plain content as Inbox by default, unless it clearly requests
 a task, calendar time, or reminder. When two destinations remain plausible, use clarify. Never
@@ -29,7 +32,8 @@ Do not add facts, deadlines, duration, or a calendar time that the user did not 
 For due_date use YYYY-MM-DD only when the user explicitly gave a task deadline; otherwise null.
 For normalized_text provide a concise, corrected Russian request usable by the existing calendar
 or reminder handler. Preserve trigger words such as «хочу позаниматься», the requested date,
-duration, time, and daypart. If calendar duration is missing, leave it missing so the assistant asks.
+duration, time, and daypart. When a calendar activity has no day, add «сегодня» as specified above.
+If calendar duration is missing, leave it missing so the assistant asks.
 For reminders, begin with «Напомни» and keep the requested reminder time explicit enough for the
 existing reminder handler to parse.
 Use the supplied local date to resolve relative dates. If the message is not an actionable save or

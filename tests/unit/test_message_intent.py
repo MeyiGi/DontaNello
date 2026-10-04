@@ -49,6 +49,31 @@ class MessageIntentTests(unittest.TestCase):
         self.assertTrue(client.calls[0][1]["inbox_prompt_pending"])
         self.assertEqual(client.calls[0][2], 300)
 
+    def test_undated_focus_request_defaults_to_today_for_calendar(self):
+        client = FakeGroq(
+            json.dumps(
+                {
+                    "destination": "calendar",
+                    "confidence": "high",
+                    "title": "Безопасность",
+                    "due_date": None,
+                    "normalized_text": "Сегодня хочу позаниматься безопасностью 1,5 часа",
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        intent = GroqMessageIntentInterpreter(client).interpret(
+            "Хочу позанматсья безопасностью 1.5 часа",
+            self.now,
+            inbox_prompt_pending=False,
+        )
+
+        self.assertEqual(intent.destination, "calendar")
+        self.assertIn("treat it as today", client.calls[0][0])
+        self.assertEqual(client.calls[0][1]["local_datetime"], self.now.isoformat())
+        self.assertIn("сегодня", intent.normalized_text.casefold())
+
     def test_parses_explicit_task_due_date_even_if_already_overdue(self):
         client = FakeGroq(
             json.dumps(

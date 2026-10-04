@@ -85,6 +85,15 @@ class CalendarPlanningTests(unittest.TestCase):
         self.assertEqual(self.calendar.created, {})
         self.assertEqual(len(response.button_rows), 2)
 
+    def test_normalized_undated_focus_request_plans_for_today(self):
+        text = "Сегодня хочу позаниматься безопасностью 1,5 часа"
+
+        response = self.application.handle_message(75, text, self.now)
+
+        self.assertIn("Безопасностью — 1 ч 30 мин", response.text)
+        self.assertIn("сегодня", response.text)
+        self.assertEqual(self.calendar.created, {})
+
     def test_request_without_duration_asks_and_remembers_context_until_answer(self):
         text = "Хочу завтра позаниматься информационной безопасностью"
 

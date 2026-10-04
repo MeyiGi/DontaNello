@@ -10,7 +10,7 @@ The configured private Telegram chat can use ordinary Russian text to capture In
 - High- and medium-confidence destinations may proceed. Low confidence, malformed output, or an unavailable model must not write to any destination; the bot asks the user to clarify or resend.
 - If an Inbox prompt is pending, it is context for classification rather than an unconditional command to save. A clear calendar, task, or reminder request goes to that capability and clears the Inbox prompt. A clear Inbox intent saves one note and returns its Notion link.
 - Task intents are saved immediately and return the Notion link. Explicit task deadlines are preserved; no deadline is invented.
-- Calendar intents are sent to calendar planning. Missing duration triggers its existing follow-up question; event creation still requires the existing inline confirmation and a fresh conflict check.
+- Calendar intents are sent to calendar planning. If a focus activity has a duration but no day, use today in the configured local timezone. Missing duration triggers its existing follow-up question; event creation still requires the existing inline confirmation and a fresh conflict check.
 - Reminder intents are sent to the existing personal reminder application. The normalized request must preserve the user's requested time or daypart.
 - Title cleanup must preserve meaning, proper names, acronyms, numbers, dates, and technical identifiers. The interpreter must not add a goal, deadline, duration, reminder time, or calendar time.
 - Telegram's configured private-chat authorization remains before model invocation and before all reads or writes. This behavior does not grant group chats personal capabilities.

@@ -394,6 +394,30 @@ class TelegramCommandTests(unittest.TestCase):
             {"inline_keyboard": [[{"text": "Add", "callback_data": "p:proposal:add"}]]},
         )
 
+    def test_undated_study_request_with_duration_routes_to_calendar_for_today(self):
+        planning = FakePlanning()
+        self.commands.planning = planning
+        phrase = "Хочу позанматсья безопасностью 1.5 часа"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {
+                phrase: MessageIntent(
+                    "calendar",
+                    "high",
+                    title="Безопасность",
+                    normalized_text="Сегодня хочу позаниматься безопасностью 1,5 часа",
+                )
+            }
+        )
+        self.telegram.items = [update(1, command=phrase)]
+
+        self.commands.run()
+
+        self.assertEqual(
+            planning.calls,
+            [(1, "Сегодня хочу позаниматься безопасностью 1,5 часа")],
+        )
+        self.assertEqual(self.telegram.sent[0][1], "suggested")
+
     def test_callback_actions_are_private_and_durable(self):
         planning = FakePlanning()
         self.commands.planning = planning
