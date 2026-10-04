@@ -16,6 +16,9 @@ from dontanello.modules.completion.adapters.notion import (
     NotionCompletionConfig,
     NotionCompletionSource,
 )
+from dontanello.modules.inbox import InboxCaptureApplication
+from dontanello.modules.inbox.adapters.notion import NotionInboxConfig, NotionInboxWriter
+from dontanello.modules.inbox.adapters.sqlite import SQLiteInboxCaptureStore
 from dontanello.modules.operations import BackupService, ErrorMonitor
 from dontanello.modules.operations.adapters.filesystem_backups import FileBackupStore
 from dontanello.modules.operations.adapters.json_alerts import JsonAlertState
@@ -55,6 +58,7 @@ class Runtime:
     progress: ProgressReports | None = None
     task_deadline_source: NotionTaskDeadlineSource | None = None
     reminders_app: ReminderApplication | None = None
+    inbox_app: InboxCaptureApplication | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -199,6 +203,40 @@ class Runtime:
             full_report=lambda period: self.report(period, full=True),
             weekly_weekday=weekly_weekday,
             reminders=self.reminders_app,
+            inbox=self.inbox_app,
+        )
+        menu = [
+            {"command": "week", "description": "Обзор за прошлую неделю"},
+            {"command": "month", "description": "Обзор за прошлый месяц"},
+            {"command": "help", "description": "Показать команды DontaNello"},
+            {"command": "status", "description": "Состояние бота"},
+        ]
+        if self.reminders_app:
+            menu.extend(
+                [
+                    {"command": "tasksettings", "description": "Настроить дедлайны"},
+                    {"command": "reminders", "description": "Мои напоминания"},
+                    {"command": "cancelreminder", "description": "Отменить напоминание"},
+                ]
+            )
+        if self.inbox_app:
+            menu.append({"command": "inbox", "description": "Записать идею в Notion Inbox"})
+        menu_configured = False
+
+        def configure_telegram_menu() -> int:
+            nonlocal menu_configured
+            if not menu_configured:
+                telegram.set_my_commands(menu)
+                menu_configured = True
+            return 0
+
+        jobs.append(
+            Job(
+                "telegram_menu",
+                configure_telegram_menu,
+                group="telegram_menu",
+                interval_seconds=60,
+            )
         )
         jobs.append(Job("telegram", commands.run, group="telegram", interval_seconds=5))
         if reports.get("enabled", False):
@@ -260,6 +298,13 @@ def build_runtime(settings: Settings) -> Runtime:
             client, NotionTaskConfig(**notion_task_config), settings.timezone
         )
     runtime = Runtime(settings, sources, report_sources, task_deadline_source=task_deadline_source)
+    inbox_config = settings.config.get("inbox")
+    if inbox_config:
+        runtime.inbox_app = InboxCaptureApplication(
+            SQLiteInboxCaptureStore(settings.root / "state" / "inbox.sqlite3"),
+            NotionInboxWriter(client, NotionInboxConfig(**inbox_config)),
+        )
+        runtime.inbox_app.recover_inflight()
     if settings.groq_api_key:
         ai = settings.config.get("reports", {}).get("ai", {})
         engine = GroqClient(

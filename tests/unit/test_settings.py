@@ -182,3 +182,13 @@ class SettingsTests(unittest.TestCase):
                 (self.root / "config" / "settings.json").write_text(json.dumps(config))
                 with patch.dict("os.environ", {}, clear=True), self.assertRaises(ValueError):
                     load_settings(self.root)
+
+    def test_inbox_configuration_requires_a_data_source_and_title_property(self):
+        config = {"completion_sources": [self.source]}
+        config["inbox"] = {"data_source_id": "inbox-source", "title_property": "Name"}
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        self.assertEqual(load_settings(self.root).config["inbox"], config["inbox"])
+        config["inbox"] = {"data_source_id": ""}
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with self.assertRaises(ValueError):
+            load_settings(self.root)

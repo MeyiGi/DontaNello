@@ -39,6 +39,18 @@ class FakeReminders:
         return "reminder response"
 
 
+class FakeInbox:
+    def __init__(self):
+        self.calls = []
+
+    def accepts_message(self, text):
+        return text.startswith("/inbox") or text.startswith("Напиши в инбокс")
+
+    def handle_message(self, update_id, text, now):
+        self.calls.append((update_id, text, now))
+        return "inbox response"
+
+
 def update(identifier, chat_id=123, kind="private", command="/week"):
     return {
         "update_id": identifier,
@@ -149,7 +161,35 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
         menu = self.telegram.sent[0][1]
         self.assertIn("📈 ПРОГРЕСС", menu)
+        self.assertIn("📥 INBOX", menu)
+        self.assertIn("В инбокс", menu)
         self.assertIn("✅ МОИ ЗАДАЧИ", menu)
         self.assertIn("/tasksettings", menu)
         self.assertIn("⏰ НАПОМИНАНИЯ", menu)
         self.assertNotIn("Работа", menu)
+
+    def test_inbox_capture_is_private_and_routes_to_inbox_application(self):
+        inbox = FakeInbox()
+        self.commands.inbox = inbox
+        self.telegram.items = [
+            update(1, command="Напиши в инбокс хочу узнать, что такое шифр"),
+            update(2, chat_id=999, command="Напиши в инбокс чужая заметка"),
+            update(3, kind="group", command="/inbox групповая заметка"),
+        ]
+        self.commands.run()
+        self.assertEqual(len(inbox.calls), 1)
+        self.assertEqual(inbox.calls[0][0:2], (1, "Напиши в инбокс хочу узнать, что такое шифр"))
+        self.assertEqual(self.telegram.sent[0][1], "inbox response")
+
+    def test_help_menu_does_not_expose_work_commands(self):
+        self.telegram.items = [update(1, command="/help")]
+        self.commands.run()
+        menu = self.telegram.sent[0][1].casefold()
+        for work_action in (
+            "план на сегодня",
+            "заявки",
+            "отчет сейчас",
+            "добавить заметку",
+            "удалить заметку",
+        ):
+            self.assertNotIn(work_action, menu)

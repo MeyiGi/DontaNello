@@ -105,6 +105,30 @@ class BackupContractTests(unittest.TestCase):
                 [("before snapshot",)],
             )
 
+    def test_inbox_capture_journal_is_backed_up_and_live_history_is_preserved(self):
+        database_path = self.root / "state" / "inbox.sqlite3"
+        connection = sqlite3.connect(database_path)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE captures (title TEXT)")
+        connection.execute("INSERT INTO captures VALUES ('before snapshot')")
+        connection.commit()
+        self.store.create(datetime(2026, 9, 28).date())
+        connection.execute("INSERT INTO captures VALUES ('after snapshot')")
+        connection.commit()
+        connection.close()
+
+        snapshot_db = self.root / "state" / "backups" / "2026-09-28" / "state" / "inbox.sqlite3"
+        with sqlite3.connect(snapshot_db) as backup:
+            self.assertEqual(
+                backup.execute("SELECT title FROM captures").fetchall(), [("before snapshot",)]
+            )
+        self.store.restore("2026-09-28")
+        with sqlite3.connect(database_path) as current:
+            self.assertEqual(
+                current.execute("SELECT title FROM captures ORDER BY rowid").fetchall(),
+                [("before snapshot",), ("after snapshot",)],
+            )
+
     def test_retention_prunes_only_owned_date_snapshots(self):
         service = BackupService(self.store, retention=2)
         for day in range(1, 5):

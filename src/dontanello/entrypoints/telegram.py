@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from dontanello.integrations.telegram.client import TelegramClient
+from dontanello.modules.inbox import InboxCaptureApplication
 from dontanello.modules.reminders import ReminderApplication
 from dontanello.modules.reports import (
     DeliveryService,
@@ -27,6 +28,7 @@ class TelegramCommands:
     full_report: Callable[[Period], str] | None = None
     weekly_weekday: int = 0
     reminders: ReminderApplication | None = None
+    inbox: InboxCaptureApplication | None = None
 
     def run(self) -> int:
         offset = self.cursor.load()
@@ -48,9 +50,13 @@ class TelegramCommands:
                     self.reminders
                     and self.reminders.accepts_message(str(message.get("text") or ""))
                 )
+                inbox_request = bool(
+                    self.inbox and self.inbox.accepts_message(str(message.get("text") or ""))
+                )
                 if (
                     command_name in ("/week", "/month", "/start", "/help", "/status")
                     or reminder_request
+                    or inbox_request
                 ):
                     now = self.now()
                     key = f"command:{update_id}"
@@ -72,6 +78,13 @@ class TelegramCommands:
                             )
                         elif command_name == "/status":
                             text = self.status()
+                        elif inbox_request and self.inbox:
+                            text = (
+                                self.inbox.handle_message(
+                                    update_id, str(message.get("text") or ""), now
+                                )
+                                or ""
+                            )
                         elif reminder_request and self.reminders:
                             text = (
                                 self.reminders.handle_message(
@@ -86,6 +99,9 @@ class TelegramCommands:
                                 "/week — прошлая неделя\n"
                                 "/month — прошлый месяц\n"
                                 "/week full или /month full — подробный список\n\n"
+                                "📥 INBOX\n"
+                                "/inbox текст — сохранить идею в Notion\n"
+                                "Или напиши: «В инбокс: хочу узнать, что такое аффинный шифр»\n\n"
                                 "✅ МОИ ЗАДАЧИ\n"
                                 "/tasksettings — расписание дедлайнов\n"
                                 "/tasksettings on или off — включить/выключить\n\n"

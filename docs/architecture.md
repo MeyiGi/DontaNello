@@ -22,6 +22,12 @@ src/dontanello/
     telegram.py                # команды, проверка пользователя, маршрутизация
     worker.py                  # расписание, запуск сценариев, изоляция ошибок
   modules/
+    inbox/
+      application.py           # Telegram idea capture and replay behavior
+      ports.py                 # capture journal and Inbox writer contracts
+      adapters/
+        notion.py              # create Inbox data-source items
+        sqlite.py              # idempotency and uncertain outcomes
     completion/
       models.py                # типизированные наблюдения и решения
       application.py           # переход чекбокса → дата

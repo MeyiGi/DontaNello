@@ -53,6 +53,9 @@ class TelegramClient:
     def chat_type(self, chat_id: str) -> str:
         return str(self.request("getChat", {"chat_id": chat_id})["type"])
 
+    def set_my_commands(self, commands: list[dict[str, str]]) -> None:
+        self.request("setMyCommands", {"commands": commands})
+
     def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int:
         with self._send_lock:
             delay = 1.1 - (time.monotonic() - self._last_sent)

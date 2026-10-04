@@ -45,6 +45,18 @@ class TelegramTransportTests(unittest.TestCase):
             client.send_message("123", "<b>Due</b>", parse_mode="HTML")
         self.assertEqual(json.loads(call.call_args.args[0].data)["parse_mode"], "HTML")
 
+    def test_set_my_commands_replaces_remote_menu_with_supported_commands(self):
+        client = TelegramClient("fixture-not-a-real-token")
+        commands = [{"command": "inbox", "description": "Записать идею"}]
+        with patch(
+            "urllib.request.urlopen",
+            return_value=io.BytesIO(b'{"ok":true,"result":true}'),
+        ) as call:
+            client.set_my_commands(commands)
+        request = call.call_args.args[0]
+        self.assertTrue(request.full_url.endswith("/setMyCommands"))
+        self.assertEqual(json.loads(request.data), {"commands": commands})
+
     def test_http_400_rejected_but_500_uncertain(self):
         for status, expected in ((400, TelegramRejected), (500, TelegramUncertain)):
             error = urllib.error.HTTPError(

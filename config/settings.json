@@ -5,6 +5,10 @@
     {"id": "e1691e60-5630-4859-b174-0ca8df716381", "name": "Goals", "checkbox": "Checkbox", "completed_on": "Completed on"}
   ],
   "work_source_id": "0bf4e4e4-a735-4101-b43a-38fd6599c820",
+  "inbox": {
+    "data_source_id": "24943782-a882-8384-9cd3-878c24ded0fd",
+    "title_property": "Name"
+  },
   "reminders": {
     "enabled": true,
     "weekdays": [0, 1, 2, 3, 4, 5, 6],

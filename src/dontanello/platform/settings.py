@@ -56,8 +56,16 @@ def load_settings(root: Path) -> Settings:
     reports = config.get("reports", {})
     operations = config.get("operations", {})
     reminders = config.get("reminders", {})
+    inbox = config.get("inbox", {})
     if not isinstance(reports, dict) or not isinstance(operations, dict):
         raise ValueError("Некорректные настройки reports/operations")
+    if not isinstance(inbox, dict):
+        raise ValueError("inbox должен быть объектом")
+    if inbox and any(
+        not isinstance(inbox.get(key), str) or not inbox[key]
+        for key in ("data_source_id", "title_property")
+    ):
+        raise ValueError("Некорректные настройки inbox")
     if not isinstance(reminders, dict):
         raise ValueError("reminders должен быть объектом")
     if reminders:
