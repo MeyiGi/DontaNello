@@ -28,6 +28,7 @@ class ArchitectureTests(unittest.TestCase):
             "datetime",
             "enum",
             "hashlib",
+            "html",
             "logging",
             "re",
             "unicodedata",

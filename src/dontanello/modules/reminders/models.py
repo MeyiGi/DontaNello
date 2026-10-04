@@ -12,6 +12,7 @@ class TaskDeadline:
     url: str = ""
     completed: bool = False
     cancelled: bool = False
+    excluded_from_digest: bool = False
 
 
 @dataclass(frozen=True)

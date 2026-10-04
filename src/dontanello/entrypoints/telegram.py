@@ -81,14 +81,19 @@ class TelegramCommands:
                             )
                         else:
                             text = (
-                                "Dontanello\n/week — предыдущая полная неделя"
-                                "\n/month — предыдущий месяц"
-                                "\n/week full и /month full — полные списки"
-                                "\n/tasksettings — расписание и горизонт дедлайнов"
-                                "\n/reminders — личные напоминания"
-                                "\n/cancelreminder ID — отменить напоминание"
-                                "\nНапиши «Напомни завтра вечером ...» для нового напоминания"
-                                "\n/status — состояние\n/help — команды"
+                                "DONTANELLO\n\n"
+                                "📈 ПРОГРЕСС\n"
+                                "/week — прошлая неделя\n"
+                                "/month — прошлый месяц\n"
+                                "/week full или /month full — подробный список\n\n"
+                                "✅ МОИ ЗАДАЧИ\n"
+                                "/tasksettings — расписание дедлайнов\n"
+                                "/tasksettings on или off — включить/выключить\n\n"
+                                "⏰ НАПОМИНАНИЯ\n"
+                                "/reminders — список\n"
+                                "/cancelreminder ID — отменить\n"
+                                "Напиши: «Напомни завтра вечером позвонить»\n\n"
+                                "/status — состояние"
                             )
                         self.delivery.deliver(key, text, now)
                     if not self.delivery.is_terminal(key):

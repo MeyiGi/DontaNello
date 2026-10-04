@@ -18,7 +18,9 @@
       "completed_property": "Completed",
       "checkbox_properties": ["Сделано", "Готово"],
       "status_property": "List",
-      "excluded_status_values": ["Cancel ❌"]
+      "excluded_status_values": ["Cancel ❌", "Done ✅"],
+      "context_property": "Context",
+      "excluded_context_values": ["Work🕶"]
     }
   },
   "reports": {

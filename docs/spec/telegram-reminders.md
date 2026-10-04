@@ -2,8 +2,8 @@
 
 ## Task deadline digest
 
-- Read open tasks from the configured private Tasks Notion data source. Use `Due`; when it is empty, use the recurring task's `Next Due`. Exclude completed, cancelled, archived, and trashed tasks and tasks without a due date.
-- Show every overdue task, tasks due today, and upcoming tasks within the configured horizon. Include the task title, due date, and days overdue or remaining. Sort by due date.
+- Read open personal tasks from the configured Tasks Notion data source. Use `Due`; when it is empty, use the recurring task's `Next Due`. Exclude completed, cancelled, archived, trashed, undated tasks, and tasks tagged with the configured work context (`Work🕶` by default).
+- Show every overdue task, tasks due today, and upcoming tasks within the configured horizon. Group by urgency and sort by due date. Use clickable task titles instead of displaying long Notion URLs; show one compact date/relative-time label per upcoming task.
 - Default schedule is daily at 06:00 in the configured user timezone, with a 7-day horizon. The user can change it in Telegram to every day or selected weekdays, change the local time and horizon, and turn the digest on/off.
 - A horizon of zero means show overdue and due-today tasks, with no advance-warning days. A digest with no matching tasks is not sent.
 - Send at most one digest per local calendar date. Persist the content before sending; retries reuse it. Do not blindly retry an uncertain Telegram send.

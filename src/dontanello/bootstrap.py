@@ -250,7 +250,11 @@ def build_runtime(settings: Settings) -> Runtime:
     reminder_config = settings.config.get("reminders", {})
     if reminder_config:
         notion_task_config = dict(reminder_config["notion_tasks"])
-        for name in ("checkbox_properties", "excluded_status_values"):
+        for name in (
+            "checkbox_properties",
+            "excluded_status_values",
+            "excluded_context_values",
+        ):
             notion_task_config[name] = tuple(notion_task_config.get(name, []))
         task_deadline_source = NotionTaskDeadlineSource(
             client, NotionTaskConfig(**notion_task_config), settings.timezone

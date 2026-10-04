@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta
+from html import escape
 
 from .models import (
     ParsedReminder,
@@ -55,6 +56,7 @@ def select_due_tasks(
                 for task in tasks
                 if not task.completed
                 and not task.cancelled
+                and not task.excluded_from_digest
                 and task.due_date <= today + timedelta(days=days_ahead)
             ),
             key=lambda task: (task.due_date, task.title.casefold(), task.id),
@@ -69,23 +71,21 @@ def render_task_digest(tasks: tuple[TaskDeadline, ...], today: date, days_ahead:
     overdue = [task for task in selected if task.due_date < today]
     due_today = [task for task in selected if task.due_date == today]
     upcoming = [task for task in selected if task.due_date > today]
-    lines = [f"🔔 Дедлайны задач — {today:%d.%m.%Y}"]
+    lines = [f"🔔 <b>Дедлайны · {today:%d.%m.%Y}</b>"]
     if overdue:
-        lines.extend(("", f"🔴 Просрочено ({len(overdue)}):"))
+        lines.extend(("", f"🔴 <b>Просрочено · {len(overdue)}</b>"))
         for task in overdue:
             late = (today - task.due_date).days
-            lines.append(
-                f"• {_task_link(task)} — срок {task.due_date:%d.%m.%Y}, просрочена на {late} {_day_word(late)}"
-            )
+            lines.append(f"• {_task_link(task)} — на {late} {_day_word(late)}")
     if due_today:
-        lines.extend(("", f"🟠 Срок сегодня ({len(due_today)}):"))
-        lines.extend(f"• {_task_link(task)} — до {today:%d.%m.%Y}" for task in due_today)
+        lines.extend(("", f"🟠 <b>Сегодня · {len(due_today)}</b>"))
+        lines.extend(f"• {_task_link(task)}" for task in due_today)
     if upcoming:
-        lines.extend(("", f"🟡 Скоро — ближайшие {days_ahead} дн. ({len(upcoming)}):"))
+        lines.extend(("", f"🟡 <b>Скоро · {len(upcoming)}</b>"))
         for task in upcoming:
             left = (task.due_date - today).days
             lines.append(
-                f"• {_task_link(task)} — через {left} {_day_word(left)}, до {task.due_date:%d.%m.%Y}"
+                f"• {_task_link(task)} — {task.due_date:%d.%m} · через {left} {_day_word(left)}"
             )
     return "\n".join(lines)
 
@@ -164,7 +164,7 @@ class ReminderApplication:
         if not self.repository.claim_digest(local_day, now):
             return 0
         try:
-            self.sender.send(self.chat_id, state[1])
+            self.sender.send(self.chat_id, state[1], parse_mode="HTML")
         except ReminderSendRejected:
             self.repository.finish_digest(local_day, "pending", now + timedelta(minutes=5))
             raise
@@ -289,7 +289,8 @@ def _parse_weekdays(value: str) -> tuple[int, ...]:
 
 
 def _task_link(task: TaskDeadline) -> str:
-    return f"{task.title} — {task.url}" if task.url else task.title
+    title = escape(task.title)
+    return f'<a href="{escape(task.url, quote=True)}">{title}</a>' if task.url else title
 
 
 def _day_word(count: int) -> str:

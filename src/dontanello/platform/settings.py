@@ -89,11 +89,19 @@ def load_settings(root: Path) -> Settings:
             for key in ("source_id", "title_property", "due_property", "next_due_property")
         ):
             raise ValueError("Некорректные настройки reminders.notion_tasks")
-        for key in ("checkbox_properties", "excluded_status_values"):
+        for key in (
+            "checkbox_properties",
+            "excluded_status_values",
+            "excluded_context_values",
+        ):
             if not isinstance(notion_tasks.get(key, []), list) or any(
                 not isinstance(value, str) for value in notion_tasks.get(key, [])
             ):
                 raise ValueError(f"reminders.notion_tasks.{key} должен быть списком строк")
+        for key in ("completed_property", "status_property", "context_property"):
+            config_value = notion_tasks.get(key)
+            if config_value is not None and (not isinstance(config_value, str) or not config_value):
+                raise ValueError(f"reminders.notion_tasks.{key} должен быть непустой строкой")
     if type(reports.get("enabled", False)) is not bool:
         raise ValueError("reports.enabled должен быть boolean")
     for name, default, maximum in (("hour", 9, 23), ("minute", 0, 59)):

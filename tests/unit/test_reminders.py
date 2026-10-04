@@ -34,7 +34,7 @@ class Sender:
         self.sent = []
         self.error = None
 
-    def send(self, chat_id, text):
+    def send(self, chat_id, text, *, parse_mode=None):
         if self.error:
             raise self.error
         self.sent.append((chat_id, text))
@@ -62,16 +62,20 @@ class ReminderTests(unittest.TestCase):
             TaskDeadline("later", "Позже", date(2026, 10, 12)),
             TaskDeadline("done", "Готовая", date(2026, 10, 4), completed=True),
             TaskDeadline("cancel", "Отменённая", date(2026, 10, 4), cancelled=True),
+            TaskDeadline("work", "Рабочая", date(2026, 10, 4), excluded_from_digest=True),
         )
         selected = select_due_tasks(tasks, self.now.date(), 7)
         self.assertEqual([task.id for task in selected], ["late", "today", "soon"])
         text = render_task_digest(tasks, self.now.date(), 7)
-        self.assertIn("просрочена на 5 дней", text)
-        self.assertIn("Срок сегодня", text)
+        self.assertIn("на 5 дней", text)
+        self.assertIn("<b>Сегодня · 1</b>", text)
         self.assertIn("через 7 дней", text)
         self.assertNotIn("Позже", text)
         self.assertNotIn("Готовая", text)
         self.assertNotIn("Отменённая", text)
+        self.assertNotIn("Рабочая", text)
+        self.assertIn("<b>Скоро · 1</b>", text)
+        self.assertNotIn("https://notion.test", text)
 
     def test_zero_horizon_keeps_overdue_and_due_today(self):
         tasks = (
@@ -82,6 +86,24 @@ class ReminderTests(unittest.TestCase):
         self.assertEqual(
             [task.id for task in select_due_tasks(tasks, self.now.date(), 0)],
             ["late", "today"],
+        )
+
+    def test_digest_escapes_task_title_and_links_task_name(self):
+        text = render_task_digest(
+            (
+                TaskDeadline(
+                    "id",
+                    "Прочитать <тему> & сдать",
+                    date(2026, 10, 5),
+                    "https://notion.test/a?x=1&y=2",
+                ),
+            ),
+            self.now.date(),
+            7,
+        )
+        self.assertIn(
+            '<a href="https://notion.test/a?x=1&amp;y=2">Прочитать &lt;тему&gt; &amp; сдать</a>',
+            text,
         )
 
     def test_digest_runs_once_after_configured_time_on_selected_weekday(self):

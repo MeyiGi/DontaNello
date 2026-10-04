@@ -143,3 +143,13 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
         self.assertEqual(len(reminders.calls), 1)
         self.assertIn("reminder response", self.telegram.sent[0][1])
+
+    def test_help_menu_groups_personal_features_without_work_commands(self):
+        self.telegram.items = [update(1, command="/help")]
+        self.commands.run()
+        menu = self.telegram.sent[0][1]
+        self.assertIn("📈 ПРОГРЕСС", menu)
+        self.assertIn("✅ МОИ ЗАДАЧИ", menu)
+        self.assertIn("/tasksettings", menu)
+        self.assertIn("⏰ НАПОМИНАНИЯ", menu)
+        self.assertNotIn("Работа", menu)

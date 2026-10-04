@@ -53,20 +53,20 @@ class TelegramClient:
     def chat_type(self, chat_id: str) -> str:
         return str(self.request("getChat", {"chat_id": chat_id})["type"])
 
-    def send_message(self, chat_id: str, text: str) -> int:
+    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int:
         with self._send_lock:
             delay = 1.1 - (time.monotonic() - self._last_sent)
             if delay > 0:
                 time.sleep(delay)
             try:
-                result = self.request(
-                    "sendMessage",
-                    {
-                        "chat_id": chat_id,
-                        "text": text,
-                        "link_preview_options": {"is_disabled": True},
-                    },
-                )
+                payload = {
+                    "chat_id": chat_id,
+                    "text": text,
+                    "link_preview_options": {"is_disabled": True},
+                }
+                if parse_mode is not None:
+                    payload["parse_mode"] = parse_mode
+                result = self.request("sendMessage", payload)
             finally:
                 self._last_sent = time.monotonic()
         try:

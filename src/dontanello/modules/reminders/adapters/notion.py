@@ -20,6 +20,8 @@ class NotionTaskConfig:
     checkbox_properties: tuple[str, ...] = ("Сделано", "Готово")
     status_property: str = "List"
     excluded_status_values: tuple[str, ...] = ("Cancel ❌", "Done ✅")
+    context_property: str = "Context"
+    excluded_context_values: tuple[str, ...] = ("Work🕶",)
 
 
 @dataclass
@@ -37,6 +39,7 @@ class NotionTaskDeadlineSource:
             self.config.next_due_property: "formula",
             self.config.completed_property: "formula",
             self.config.status_property: "status",
+            self.config.context_property: "multi_select",
         }
         for checkbox in self.config.checkbox_properties:
             expected[checkbox] = "checkbox"
@@ -66,6 +69,7 @@ class NotionTaskDeadlineSource:
                 for name in self.config.checkbox_properties
             ) or _formula_boolean(properties.get(self.config.completed_property))
             status = _choice(properties.get(self.config.status_property))
+            contexts = _multi_select(properties.get(self.config.context_property))
             title = _title(properties.get(self.config.title_property)) or "Без названия"
             tasks.append(
                 TaskDeadline(
@@ -75,6 +79,9 @@ class NotionTaskDeadlineSource:
                     url=page.get("url", "") if isinstance(page.get("url", ""), str) else "",
                     completed=completed,
                     cancelled=status in self.config.excluded_status_values,
+                    excluded_from_digest=bool(
+                        contexts.intersection(self.config.excluded_context_values)
+                    ),
                 )
             )
         return tuple(tasks)
@@ -128,3 +135,13 @@ def _choice(value: Any) -> str:
         return ""
     choice = value.get("status") or value.get("select")
     return choice.get("name", "") if isinstance(choice, dict) else ""
+
+
+def _multi_select(value: Any) -> set[str]:
+    if not isinstance(value, dict) or not isinstance(value.get("multi_select"), list):
+        return set()
+    return {
+        item["name"]
+        for item in value["multi_select"]
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }

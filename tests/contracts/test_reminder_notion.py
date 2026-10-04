@@ -27,11 +27,20 @@ class FakeNotion:
                 "Сделано": {"type": "checkbox"},
                 "Готово": {"type": "checkbox"},
                 "List": {"type": "status"},
+                "Context": {"type": "multi_select"},
             }
         }
 
 
-def page(identifier, due=None, next_due=None, done=False, status="To do", archived=False):
+def page(
+    identifier,
+    due=None,
+    next_due=None,
+    done=False,
+    status="To do",
+    context=(),
+    archived=False,
+):
     return {
         "id": identifier,
         "url": f"https://notion.test/{identifier}",
@@ -44,6 +53,7 @@ def page(identifier, due=None, next_due=None, done=False, status="To do", archiv
             "Сделано": {"checkbox": False},
             "Готово": {"checkbox": False},
             "List": {"status": {"name": status}},
+            "Context": {"multi_select": [{"name": name} for name in context]},
         },
     }
 
@@ -57,6 +67,7 @@ class NotionReminderAdapterTests(unittest.TestCase):
                     page("recurring", next_due="2026-10-06"),
                     page("formula-done", due="2026-10-05", done=True),
                     page("cancelled", due="2026-10-05", status="Cancel ❌"),
+                    page("work", due="2026-10-05", context=("Work🕶",)),
                     page("archived", due="2026-10-05", archived=True),
                     page("undated"),
                 ]
@@ -70,7 +81,7 @@ class NotionReminderAdapterTests(unittest.TestCase):
 
         self.assertEqual(
             [task.id for task in tasks],
-            ["due", "recurring", "formula-done", "cancelled"],
+            ["due", "recurring", "formula-done", "cancelled", "work"],
         )
         self.assertEqual(
             [task.due_date for task in tasks[:2]], [date(2026, 10, 5), date(2026, 10, 6)]
@@ -78,6 +89,7 @@ class NotionReminderAdapterTests(unittest.TestCase):
         self.assertEqual(tasks[0].url, "https://notion.test/due")
         self.assertTrue(tasks[2].completed)
         self.assertTrue(tasks[3].cancelled)
+        self.assertTrue(tasks[4].excluded_from_digest)
 
 
 if __name__ == "__main__":

@@ -15,9 +15,9 @@ from ..models import ReminderSendRejected, ReminderSendUncertain
 class TelegramReminderSender:
     client: TelegramClient
 
-    def send(self, chat_id: str, text: str) -> int:
+    def send(self, chat_id: str, text: str, *, parse_mode: str | None = None) -> int:
         try:
-            return self.client.send_message(chat_id, text)
+            return self.client.send_message(chat_id, text, parse_mode=parse_mode)
         except TelegramRejected as error:
             raise ReminderSendRejected(str(error)) from None
         except TelegramUncertain as error:

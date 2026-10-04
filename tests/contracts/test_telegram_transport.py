@@ -36,6 +36,15 @@ class TelegramTransportTests(unittest.TestCase):
                 TelegramClient(token).send_message("123", "report")
         self.assertNotIn(token, str(raised.exception))
 
+    def test_html_parse_mode_can_be_requested_explicitly(self):
+        client = TelegramClient("fixture-not-a-real-token")
+        with patch(
+            "urllib.request.urlopen",
+            return_value=io.BytesIO(b'{"ok":true,"result":{"message_id":8}}'),
+        ) as call:
+            client.send_message("123", "<b>Due</b>", parse_mode="HTML")
+        self.assertEqual(json.loads(call.call_args.args[0].data)["parse_mode"], "HTML")
+
     def test_http_400_rejected_but_500_uncertain(self):
         for status, expected in ((400, TelegramRejected), (500, TelegramUncertain)):
             error = urllib.error.HTTPError(
