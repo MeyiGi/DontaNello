@@ -15,6 +15,26 @@ from dontanello.modules.reports import (
 )
 from dontanello.platform.telegram_cursor import TelegramCursor
 
+PERSONAL_KEYBOARD = {
+    "keyboard": [
+        [{"text": "📈 Неделя"}, {"text": "📆 Месяц"}],
+        [{"text": "📥 Inbox"}, {"text": "⏰ Напоминания"}],
+        [{"text": "⚙️ Настройки дедлайнов"}, {"text": "ℹ️ Статус"}],
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True,
+    "input_field_placeholder": "Напиши задачу, напоминание или идею…",
+}
+
+_KEYBOARD_COMMANDS = {
+    "📈 Неделя": "/week",
+    "📆 Месяц": "/month",
+    "📥 Inbox": "/inbox",
+    "⏰ Напоминания": "/reminders",
+    "⚙️ Настройки дедлайнов": "/tasksettings",
+    "ℹ️ Статус": "/status",
+}
+
 
 @dataclass
 class TelegramCommands:
@@ -44,15 +64,14 @@ class TelegramCommands:
                 and not message.get("from", {}).get("is_bot", False)
             )
             if authorized:
-                command = str(message.get("text", "")).split(maxsplit=1)
+                raw_text = str(message.get("text") or "")
+                routed_text = _KEYBOARD_COMMANDS.get(raw_text, raw_text)
+                command = routed_text.split(maxsplit=1)
                 command_name = command[0].split("@", 1)[0].lower() if command else ""
                 reminder_request = bool(
-                    self.reminders
-                    and self.reminders.accepts_message(str(message.get("text") or ""))
+                    self.reminders and self.reminders.accepts_message(routed_text)
                 )
-                inbox_request = bool(
-                    self.inbox and self.inbox.accepts_message(str(message.get("text") or ""))
-                )
+                inbox_request = bool(self.inbox and self.inbox.accepts_message(routed_text))
                 if (
                     command_name in ("/week", "/month", "/start", "/help", "/status")
                     or reminder_request
@@ -79,37 +98,22 @@ class TelegramCommands:
                         elif command_name == "/status":
                             text = self.status()
                         elif inbox_request and self.inbox:
-                            text = (
-                                self.inbox.handle_message(
-                                    update_id, str(message.get("text") or ""), now
-                                )
-                                or ""
-                            )
+                            text = self.inbox.handle_message(update_id, routed_text, now) or ""
                         elif reminder_request and self.reminders:
-                            text = (
-                                self.reminders.handle_message(
-                                    update_id, str(message.get("text") or ""), now
-                                )
-                                or ""
-                            )
+                            text = self.reminders.handle_message(update_id, routed_text, now) or ""
                         else:
                             text = (
                                 "DONTANELLO\n\n"
+                                "Можно нажимать кнопки внизу чата — команды вводить не обязательно.\n"
                                 "📈 ПРОГРЕСС\n"
-                                "/week — прошлая неделя\n"
-                                "/month — прошлый месяц\n"
-                                "/week full или /month full — подробный список\n\n"
+                                "Кнопки «Неделя» и «Месяц» — обзоры прогресса.\n\n"
                                 "📥 INBOX\n"
-                                "/inbox текст — сохранить идею в Notion\n"
-                                "Или напиши: «В инбокс: хочу узнать, что такое аффинный шифр»\n\n"
+                                "Нажми «Inbox» или напиши, что сохранить: «Запиши в инбокс: узнать про аффинный шифр».\n\n"
                                 "✅ МОИ ЗАДАЧИ\n"
-                                "/tasksettings — расписание дедлайнов\n"
-                                "/tasksettings on или off — включить/выключить\n\n"
+                                "Кнопка «Настройки дедлайнов» открывает расписание уведомлений.\n\n"
                                 "⏰ НАПОМИНАНИЯ\n"
-                                "/reminders — список\n"
-                                "/cancelreminder ID — отменить\n"
-                                "Напиши: «Напомни завтра вечером позвонить»\n\n"
-                                "/status — состояние"
+                                "Кнопка «Напоминания» покажет активные; напиши: «Напомни завтра вечером позвонить».\n\n"
+                                "Кнопка «Статус» покажет состояние бота."
                             )
                         self.delivery.deliver(key, text, now)
                     if not self.delivery.is_terminal(key):

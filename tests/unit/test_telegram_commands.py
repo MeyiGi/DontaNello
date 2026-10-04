@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-from dontanello.entrypoints.telegram import TelegramCommands
+from dontanello.entrypoints.telegram import PERSONAL_KEYBOARD, TelegramCommands
 from dontanello.modules.reports import DeliveryRejected, DeliveryService, DeliveryUncertain
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -32,7 +32,7 @@ class FakeReminders:
         self.calls = []
 
     def accepts_message(self, text):
-        return text.startswith("/tasksettings") or text.startswith("Напомни")
+        return text.startswith(("/tasksettings", "/reminders")) or text.startswith("Напомни")
 
     def handle_message(self, update_id, text, now):
         self.calls.append((update_id, text, now))
@@ -102,6 +102,42 @@ class TelegramCommandTests(unittest.TestCase):
         self.assertEqual([p.start.isoformat() for p in self.periods], ["2026-09-21", "2026-08-01"])
         self.assertEqual(len(self.telegram.sent), 2)
 
+    def test_personal_keyboard_buttons_route_to_existing_actions(self):
+        reminders = FakeReminders()
+        inbox = FakeInbox()
+        self.commands.reminders = reminders
+        self.commands.inbox = inbox
+        self.telegram.items = [
+            update(1, command="📈 Неделя"),
+            update(2, command="📆 Месяц"),
+            update(3, command="📥 Inbox"),
+            update(4, command="⏰ Напоминания"),
+            update(5, command="⚙️ Настройки дедлайнов"),
+            update(6, command="ℹ️ Статус"),
+        ]
+
+        self.commands.run()
+
+        self.assertEqual(len(self.periods), 2)
+        self.assertEqual(inbox.calls[0][1], "/inbox")
+        self.assertEqual(reminders.calls[0][1], "/reminders")
+        self.assertEqual(reminders.calls[1][1], "/tasksettings")
+        self.assertEqual(self.telegram.sent[-1][1], "status")
+
+    def test_personal_keyboard_has_no_work_actions(self):
+        buttons = [button["text"] for row in PERSONAL_KEYBOARD["keyboard"] for button in row]
+        self.assertEqual(
+            buttons,
+            [
+                "📈 Неделя",
+                "📆 Месяц",
+                "📥 Inbox",
+                "⏰ Напоминания",
+                "⚙️ Настройки дедлайнов",
+                "ℹ️ Статус",
+            ],
+        )
+
     def test_cursor_failure_after_delivery_does_not_send_twice(self):
         self.telegram.items = [update(1)]
         with patch.object(self.cursor, "save", side_effect=OSError("disk")):
@@ -162,9 +198,9 @@ class TelegramCommandTests(unittest.TestCase):
         menu = self.telegram.sent[0][1]
         self.assertIn("📈 ПРОГРЕСС", menu)
         self.assertIn("📥 INBOX", menu)
-        self.assertIn("В инбокс", menu)
+        self.assertIn("Запиши в инбокс", menu)
         self.assertIn("✅ МОИ ЗАДАЧИ", menu)
-        self.assertIn("/tasksettings", menu)
+        self.assertIn("Настройки дедлайнов", menu)
         self.assertIn("⏰ НАПОМИНАНИЯ", menu)
         self.assertNotIn("Работа", menu)
 

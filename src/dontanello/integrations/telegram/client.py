@@ -56,7 +56,13 @@ class TelegramClient:
     def set_my_commands(self, commands: list[dict[str, str]]) -> None:
         self.request("setMyCommands", {"commands": commands})
 
-    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int:
+    def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> int:
         with self._send_lock:
             delay = 1.1 - (time.monotonic() - self._last_sent)
             if delay > 0:
@@ -69,6 +75,8 @@ class TelegramClient:
                 }
                 if parse_mode is not None:
                     payload["parse_mode"] = parse_mode
+                if reply_markup is not None:
+                    payload["reply_markup"] = reply_markup
                 result = self.request("sendMessage", payload)
             finally:
                 self._last_sent = time.monotonic()

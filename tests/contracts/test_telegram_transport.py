@@ -45,6 +45,18 @@ class TelegramTransportTests(unittest.TestCase):
             client.send_message("123", "<b>Due</b>", parse_mode="HTML")
         self.assertEqual(json.loads(call.call_args.args[0].data)["parse_mode"], "HTML")
 
+    def test_persistent_reply_keyboard_can_be_attached_to_a_message(self):
+        markup = {"keyboard": [[{"text": "📈 Неделя"}]], "is_persistent": True}
+        with patch(
+            "urllib.request.urlopen",
+            return_value=io.BytesIO(b'{"ok":true,"result":{"message_id":9}}'),
+        ) as call:
+            TelegramClient("fixture-not-a-real-token").send_message(
+                "123", "Кнопки готовы", reply_markup=markup
+            )
+        payload = json.loads(call.call_args.args[0].data)
+        self.assertEqual(payload["reply_markup"], markup)
+
     def test_set_my_commands_replaces_remote_menu_with_supported_commands(self):
         client = TelegramClient("fixture-not-a-real-token")
         commands = [{"command": "inbox", "description": "Записать идею"}]
