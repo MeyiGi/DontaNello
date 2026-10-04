@@ -3,6 +3,7 @@
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import time
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -54,8 +55,45 @@ def load_settings(root: Path) -> Settings:
         seen.add(identity)
     reports = config.get("reports", {})
     operations = config.get("operations", {})
+    reminders = config.get("reminders", {})
     if not isinstance(reports, dict) or not isinstance(operations, dict):
         raise ValueError("Некорректные настройки reports/operations")
+    if not isinstance(reminders, dict):
+        raise ValueError("reminders должен быть объектом")
+    if reminders:
+        if type(reminders.get("enabled", True)) is not bool:
+            raise ValueError("reminders.enabled должен быть boolean")
+        weekdays = reminders.get("weekdays", list(range(7)))
+        if (
+            not isinstance(weekdays, list)
+            or not weekdays
+            or any(type(day) is not int or not 0 <= day <= 6 for day in weekdays)
+            or len(set(weekdays)) != len(weekdays)
+        ):
+            raise ValueError("reminders.weekdays должен содержать уникальные дни от 0 до 6")
+        reminder_time = reminders.get("time", "06:00")
+        if not isinstance(reminder_time, str):
+            raise ValueError("reminders.time должен быть временем HH:MM")
+        try:
+            parsed_time = time.fromisoformat(reminder_time)
+        except ValueError:
+            raise ValueError("reminders.time должен быть временем HH:MM") from None
+        if parsed_time.second or parsed_time.microsecond or len(reminder_time) != 5:
+            raise ValueError("reminders.time должен быть временем HH:MM")
+        days_ahead = reminders.get("days_ahead", 7)
+        if type(days_ahead) is not int or not 0 <= days_ahead <= 365:
+            raise ValueError("reminders.days_ahead должен быть числом от 0 до 365")
+        notion_tasks = reminders.get("notion_tasks", {})
+        if not isinstance(notion_tasks, dict) or any(
+            not isinstance(notion_tasks.get(key), str) or not notion_tasks[key]
+            for key in ("source_id", "title_property", "due_property", "next_due_property")
+        ):
+            raise ValueError("Некорректные настройки reminders.notion_tasks")
+        for key in ("checkbox_properties", "excluded_status_values"):
+            if not isinstance(notion_tasks.get(key, []), list) or any(
+                not isinstance(value, str) for value in notion_tasks.get(key, [])
+            ):
+                raise ValueError(f"reminders.notion_tasks.{key} должен быть списком строк")
     if type(reports.get("enabled", False)) is not bool:
         raise ValueError("reports.enabled должен быть boolean")
     for name, default, maximum in (("hour", 9, 23), ("minute", 0, 59)):

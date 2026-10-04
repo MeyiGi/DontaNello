@@ -162,3 +162,23 @@ class SettingsTests(unittest.TestCase):
         with patch.dict("os.environ", {"TELEGRAM_CHAT_ID": "-1001234567890"}, clear=True):
             with self.assertRaisesRegex(ValueError, "личного чата"):
                 load_settings(self.root)
+
+    def test_reminder_configuration_requires_valid_schedule_and_horizon(self):
+        base = {
+            "completion_sources": [self.source],
+            "reminders": {
+                "notion_tasks": {
+                    "source_id": "tasks",
+                    "title_property": "Name",
+                    "due_property": "Due",
+                    "next_due_property": "Next Due",
+                },
+            },
+        }
+        for key, value in (("time", "6:00"), ("days_ahead", 366), ("weekdays", [7])):
+            with self.subTest(key=key):
+                config = json.loads(json.dumps(base))
+                config["reminders"][key] = value
+                (self.root / "config" / "settings.json").write_text(json.dumps(config))
+                with patch.dict("os.environ", {}, clear=True), self.assertRaises(ValueError):
+                    load_settings(self.root)

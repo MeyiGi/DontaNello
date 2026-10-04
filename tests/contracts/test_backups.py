@@ -79,6 +79,32 @@ class BackupContractTests(unittest.TestCase):
                 restored.execute("SELECT value FROM progress").fetchall(), [("before snapshot",)]
             )
 
+    def test_reminder_history_is_backed_up_and_live_state_is_preserved_on_restore(self):
+        database_path = self.root / "state" / "reminders.sqlite3"
+        connection = sqlite3.connect(database_path)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE reminders (text TEXT)")
+        connection.execute("INSERT INTO reminders VALUES ('before snapshot')")
+        connection.commit()
+        self.store.create(datetime(2026, 9, 28).date())
+        connection.execute("INSERT INTO reminders VALUES ('after snapshot')")
+        connection.commit()
+        connection.close()
+
+        self.store.restore("2026-09-28")
+        with sqlite3.connect(database_path) as current:
+            self.assertEqual(
+                current.execute("SELECT text FROM reminders ORDER BY text").fetchall(),
+                [("after snapshot",), ("before snapshot",)],
+            )
+
+        self.store.restore("2026-09-28", restore_delivery_history=True)
+        with sqlite3.connect(database_path) as restored:
+            self.assertEqual(
+                restored.execute("SELECT text FROM reminders").fetchall(),
+                [("before snapshot",)],
+            )
+
     def test_retention_prunes_only_owned_date_snapshots(self):
         service = BackupService(self.store, retention=2)
         for day in range(1, 5):

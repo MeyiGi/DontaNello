@@ -1,7 +1,7 @@
 """Composition root assembling concrete implementations."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 from queue import Empty, SimpleQueue
 
@@ -21,6 +21,13 @@ from dontanello.modules.operations.adapters.filesystem_backups import FileBackup
 from dontanello.modules.operations.adapters.json_alerts import JsonAlertState
 from dontanello.modules.operations.adapters.serialized_monitor import SerializedMonitor
 from dontanello.modules.operations.adapters.telegram import TelegramAlertSender
+from dontanello.modules.reminders import ReminderApplication, TaskDigestSettings
+from dontanello.modules.reminders.adapters.notion import (
+    NotionTaskConfig,
+    NotionTaskDeadlineSource,
+)
+from dontanello.modules.reminders.adapters.sqlite import SQLiteReminderRepository
+from dontanello.modules.reminders.adapters.telegram import TelegramReminderSender
 from dontanello.modules.reports import (
     DeliveryService,
     Period,
@@ -46,6 +53,8 @@ class Runtime:
     monitor: SerializedMonitor | None = None
     outcomes: SimpleQueue[tuple[str, bool, datetime]] = field(default_factory=SimpleQueue)
     progress: ProgressReports | None = None
+    task_deadline_source: NotionTaskDeadlineSource | None = None
+    reminders_app: ReminderApplication | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -79,6 +88,9 @@ class Runtime:
                 if schema["properties"].get(name, {}).get("type") != kind:
                     raise ValueError(f"Report {report_source.config.name}: invalid field {name}")
             print("Report source: " + report_source.config.name + " OK")
+        if self.task_deadline_source:
+            self.task_deadline_source.validate()
+            print("Task reminder source: OK")
         if self.settings.groq_api_key:
             models = GroqClient(
                 self.settings.groq_api_key,
@@ -107,9 +119,46 @@ class Runtime:
         jobs.append(
             Job("backups", lambda: backups.run(self.now()), group="backups", interval_seconds=3600)
         )
+        telegram: TelegramClient | None = None
+        if self.task_deadline_source:
+            if not self.settings.telegram_token or not self.settings.telegram_chat_id:
+                return jobs
+            telegram = TelegramClient(self.settings.telegram_token)
+            reminder_config = self.settings.config["reminders"]
+            defaults = TaskDigestSettings(
+                enabled=reminder_config.get("enabled", True),
+                weekdays=tuple(reminder_config.get("weekdays", range(7))),
+                send_time=time.fromisoformat(reminder_config.get("time", "06:00")),
+                days_ahead=reminder_config.get("days_ahead", 7),
+            )
+            reminders = ReminderApplication(
+                SQLiteReminderRepository(self.settings.root / "state" / "reminders.sqlite3"),
+                self.task_deadline_source,
+                TelegramReminderSender(telegram),
+                self.settings.telegram_chat_id,
+                defaults,
+            )
+            reminders.recover_inflight()
+            self.reminders_app = reminders
+            jobs.append(
+                Job(
+                    "task_digest",
+                    lambda: reminders.run_task_digest(self.now()),
+                    group="task_digest",
+                    interval_seconds=60,
+                )
+            )
+            jobs.append(
+                Job(
+                    "personal_reminders",
+                    lambda: reminders.run_due_personal(self.now()),
+                    group="personal_reminders",
+                    interval_seconds=15,
+                )
+            )
         if not self.settings.telegram_token or not self.settings.telegram_chat_id:
             return jobs
-        telegram = TelegramClient(self.settings.telegram_token)
+        telegram = telegram or TelegramClient(self.settings.telegram_token)
         self.monitor = SerializedMonitor(
             ErrorMonitor(
                 JsonAlertState(self.settings.root / "state" / "alerts.json"),
@@ -149,6 +198,7 @@ class Runtime:
             status,
             full_report=lambda period: self.report(period, full=True),
             weekly_weekday=weekly_weekday,
+            reminders=self.reminders_app,
         )
         jobs.append(Job("telegram", commands.run, group="telegram", interval_seconds=5))
         if reports.get("enabled", False):
@@ -196,7 +246,16 @@ def build_runtime(settings: Settings) -> Runtime:
         NotionReportSource(client, NotionReportConfig(**source), settings.timezone)
         for source in settings.config.get("reports", {}).get("sources", [])
     ]
-    runtime = Runtime(settings, sources, report_sources)
+    task_deadline_source = None
+    reminder_config = settings.config.get("reminders", {})
+    if reminder_config:
+        notion_task_config = dict(reminder_config["notion_tasks"])
+        for name in ("checkbox_properties", "excluded_status_values"):
+            notion_task_config[name] = tuple(notion_task_config.get(name, []))
+        task_deadline_source = NotionTaskDeadlineSource(
+            client, NotionTaskConfig(**notion_task_config), settings.timezone
+        )
+    runtime = Runtime(settings, sources, report_sources, task_deadline_source=task_deadline_source)
     if settings.groq_api_key:
         ai = settings.config.get("reports", {}).get("ai", {})
         engine = GroqClient(

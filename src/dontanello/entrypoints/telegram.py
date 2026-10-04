@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from dontanello.integrations.telegram.client import TelegramClient
+from dontanello.modules.reminders import ReminderApplication
 from dontanello.modules.reports import (
     DeliveryService,
     Period,
@@ -25,6 +26,7 @@ class TelegramCommands:
     status: Callable[[], str]
     full_report: Callable[[Period], str] | None = None
     weekly_weekday: int = 0
+    reminders: ReminderApplication | None = None
 
     def run(self) -> int:
         offset = self.cursor.load()
@@ -42,7 +44,14 @@ class TelegramCommands:
             if authorized:
                 command = str(message.get("text", "")).split(maxsplit=1)
                 command_name = command[0].split("@", 1)[0].lower() if command else ""
-                if command_name in ("/week", "/month", "/start", "/help", "/status"):
+                reminder_request = bool(
+                    self.reminders
+                    and self.reminders.accepts_message(str(message.get("text") or ""))
+                )
+                if (
+                    command_name in ("/week", "/month", "/start", "/help", "/status")
+                    or reminder_request
+                ):
                     now = self.now()
                     key = f"command:{update_id}"
                     if self.delivery.needs_delivery(key, now):
@@ -63,8 +72,24 @@ class TelegramCommands:
                             )
                         elif command_name == "/status":
                             text = self.status()
+                        elif reminder_request and self.reminders:
+                            text = (
+                                self.reminders.handle_message(
+                                    update_id, str(message.get("text") or ""), now
+                                )
+                                or ""
+                            )
                         else:
-                            text = "Dontanello\n/week — предыдущая полная неделя\n/month — предыдущий месяц\n/week full и /month full — полные списки\n/status — состояние\n/help — команды"
+                            text = (
+                                "Dontanello\n/week — предыдущая полная неделя"
+                                "\n/month — предыдущий месяц"
+                                "\n/week full и /month full — полные списки"
+                                "\n/tasksettings — расписание и горизонт дедлайнов"
+                                "\n/reminders — личные напоминания"
+                                "\n/cancelreminder ID — отменить напоминание"
+                                "\nНапиши «Напомни завтра вечером ...» для нового напоминания"
+                                "\n/status — состояние\n/help — команды"
+                            )
                         self.delivery.deliver(key, text, now)
                     if not self.delivery.is_terminal(key):
                         # Safe rejection backoff: keep this update queued until due.

@@ -5,6 +5,22 @@
     {"id": "e1691e60-5630-4859-b174-0ca8df716381", "name": "Goals", "checkbox": "Checkbox", "completed_on": "Completed on"}
   ],
   "work_source_id": "0bf4e4e4-a735-4101-b43a-38fd6599c820",
+  "reminders": {
+    "enabled": true,
+    "weekdays": [0, 1, 2, 3, 4, 5, 6],
+    "time": "06:00",
+    "days_ahead": 7,
+    "notion_tasks": {
+      "source_id": "c0b43782-a882-83c8-9d1a-87dd25beebaf",
+      "title_property": "Name",
+      "due_property": "Due",
+      "next_due_property": "Next Due",
+      "completed_property": "Completed",
+      "checkbox_properties": ["Сделано", "Готово"],
+      "status_property": "List",
+      "excluded_status_values": ["Cancel ❌"]
+    }
+  },
   "reports": {
     "enabled": true,
     "weekly_weekday": 6,

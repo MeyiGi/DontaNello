@@ -27,6 +27,18 @@ class FakeTelegram:
         return len(self.sent)
 
 
+class FakeReminders:
+    def __init__(self):
+        self.calls = []
+
+    def accepts_message(self, text):
+        return text.startswith("/tasksettings") or text.startswith("Напомни")
+
+    def handle_message(self, update_id, text, now):
+        self.calls.append((update_id, text, now))
+        return "reminder response"
+
+
 def update(identifier, chat_id=123, kind="private", command="/week"):
     return {
         "update_id": identifier,
@@ -112,3 +124,22 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
         self.assertEqual(self.telegram.sent, [])
         self.assertEqual(self.cursor.load(), 2)
+
+    def test_reminder_commands_are_restricted_to_configured_private_chat(self):
+        reminders = FakeReminders()
+        self.commands.reminders = reminders
+        self.telegram.items = [
+            update(1, chat_id=999, command="/tasksettings"),
+            update(2, kind="group", command="Напомни завтра позвонить"),
+        ]
+        self.commands.run()
+        self.assertEqual(reminders.calls, [])
+        self.assertEqual(self.telegram.sent, [])
+
+    def test_private_reminder_command_delegates_to_reminder_application(self):
+        reminders = FakeReminders()
+        self.commands.reminders = reminders
+        self.telegram.items = [update(1, command="Напомни завтра позвонить")]
+        self.commands.run()
+        self.assertEqual(len(reminders.calls), 1)
+        self.assertIn("reminder response", self.telegram.sent[0][1])
