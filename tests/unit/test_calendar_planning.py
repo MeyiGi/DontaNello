@@ -102,6 +102,22 @@ class CalendarPlanningTests(unittest.TestCase):
         self.assertEqual(len(self.repository.items), 1)
         self.assertIsNone(self.repository.pending_intent())
 
+    def test_numeric_date_without_duration_is_calendar_request_not_task(self):
+        text = "Хочу позаниматься информационной безопасностью в 09.10"
+
+        question = self.application.handle_message(73, text, self.now)
+
+        self.assertIn("09.10.2026", question.text)
+        self.assertIn("На сколько времени", question.text)
+        self.assertEqual(self.calendar.reads, 0)
+        self.assertEqual(self.calendar.created, {})
+
+        proposal = self.application.handle_message(74, "1,5 часа", self.now)
+
+        self.assertIn("09.10", proposal.text)
+        self.assertIn("1 ч 30 мин", proposal.text)
+        self.assertEqual(len(self.repository.items), 1)
+
     def test_invalid_duration_answer_keeps_the_pending_request(self):
         self.application.handle_message(
             72, "Хочу завтра позаниматься информационной безопасностью", self.now

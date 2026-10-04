@@ -28,7 +28,11 @@ class TaskCaptureApplication:
     def handle_message(self, update_id: int, text: str, now: datetime) -> TaskResponse | None:
         existing = self.repository.proposal_for_update(update_id)
         if existing is not None:
-            return self._proposal_response(existing)
+            return (
+                self._create(existing)
+                if existing.status == "pending"
+                else self._proposal_response(existing)
+            )
         draft = parse_task_draft(text, now.date())
         if draft is None:
             return None
@@ -40,7 +44,7 @@ class TaskCaptureApplication:
         proposal_id = hashlib.sha256(f"{update_id}:{text}".encode()).hexdigest()[:32]
         proposal = TaskProposal(proposal_id, update_id, text, draft, "pending")
         self.repository.save_proposal(proposal)
-        return self._proposal_response(proposal)
+        return self._create(proposal)
 
     def handle_callback(self, data: str) -> TaskResponse:
         parts = data.split(":")
@@ -57,6 +61,9 @@ class TaskCaptureApplication:
             return TaskResponse("Добавление задачи отменено. Notion не менял.")
         if action != "add":
             return TaskResponse("Не понял действие кнопки.")
+        return self._create(proposal)
+
+    def _create(self, proposal: TaskProposal) -> TaskResponse:
         if proposal.status == "created":
             return self._created_response(proposal)
         if proposal.status == "uncertain":
@@ -97,6 +104,15 @@ class TaskCaptureApplication:
             return self._created_response(proposal)
         if proposal.status == "cancelled":
             return TaskResponse("Добавление задачи отменено.")
+        if proposal.status == "uncertain":
+            return TaskResponse(
+                "⚠️ Не могу подтвердить, создалась ли задача. Проверь Tasks в Notion "
+                "перед повтором, чтобы не создать дубль."
+            )
+        if proposal.status == "rejected":
+            return TaskResponse(
+                "Notion отклонил создание задачи. Проверь её название и попробуй снова."
+            )
         due = (
             f"\nСрок: {proposal.draft.due_date:%d.%m.%Y}"
             if proposal.draft.due_date
@@ -114,6 +130,7 @@ class TaskCaptureApplication:
 
     @staticmethod
     def _created_response(proposal: TaskProposal) -> TaskResponse:
+        due = f"\nСрок: {proposal.draft.due_date:%d.%m.%Y}" if proposal.draft.due_date else ""
         return TaskResponse(
-            f"✅ Добавил задачу в Notion: {proposal.draft.title}\n{proposal.page_url}"
+            f"✅ Добавил задачу в Notion: {proposal.draft.title}{due}\n{proposal.page_url}"
         )

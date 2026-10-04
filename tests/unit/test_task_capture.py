@@ -57,57 +57,53 @@ class TaskCaptureTests(unittest.TestCase):
         self.assertEqual(colloquial.due_date, date(2026, 10, 9))
         self.assertIsNone(parse_task_draft("Просто прочитать презентацию", self.now.date()))
 
-    def test_request_requires_confirmation_then_creates_once_with_link(self):
+    def test_explicit_request_creates_immediately_and_replays_same_result(self):
         prompt = self.app.handle_message(
             11, "Добавь задачу прочитать презентацию до завтра", self.now
         )
         self.assertIn("прочитать презентацию", prompt.text)
         self.assertIn("05.10.2026", prompt.text)
-        self.assertIn("Backlog", prompt.text)
-        self.assertEqual(self.writer.drafts, [])
-
-        response = self.app.handle_callback(prompt.button_rows[0][0].callback_data)
-        replay = self.app.handle_callback(prompt.button_rows[0][0].callback_data)
-        self.assertIn("https://notion.test/1", response.text)
-        self.assertEqual(response, replay)
+        self.assertIn("✅ Добавил задачу", prompt.text)
+        self.assertIn("https://notion.test/1", prompt.text)
+        replay = self.app.handle_message(
+            11, "Добавь задачу прочитать презентацию до завтра", self.now
+        )
+        self.assertEqual(prompt, replay)
         self.assertEqual(len(self.writer.drafts), 1)
 
-    def test_cancel_does_not_write_and_unspecified_due_stays_empty(self):
+    def test_unspecified_due_is_empty_and_explicit_task_is_written(self):
         prompt = self.app.handle_message(12, "Создай задачу повторить тему", self.now)
-        self.assertIn("Срок: не указан", prompt.text)
-        response = self.app.handle_callback(prompt.button_rows[0][1].callback_data)
-        self.assertIn("отменено", response.text)
-        self.assertEqual(self.writer.drafts, [])
+        self.assertIn("✅ Добавил задачу", prompt.text)
+        self.assertEqual(self.writer.drafts[0].due_date, None)
 
     def test_proposal_survives_restart_and_database_is_private(self):
-        prompt = self.app.handle_message(13, "Добавь задачу проверить тему", self.now)
+        self.app.handle_message(13, "Добавь задачу проверить тему", self.now)
         restarted = TaskCaptureApplication(SQLiteTaskCaptureRepository(self.path), self.writer)
         restarted.recover_inflight()
-        result = restarted.handle_callback(prompt.button_rows[0][0].callback_data)
+        proposal = self.repository.proposal_for_update(13)
+        result = restarted.handle_callback(f"t:{proposal.id}:add")
         self.assertIn("notion.test/1", result.text)
+        self.assertEqual(len(self.writer.drafts), 1)
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
     def test_uncertain_create_is_never_retried(self):
-        prompt = self.app.handle_message(14, "Добавь задачу проверить тему", self.now)
-        callback = prompt.button_rows[0][0].callback_data
         self.writer.error = TimeoutError("acknowledgement lost")
 
-        first = self.app.handle_callback(callback)
+        first = self.app.handle_message(14, "Добавь задачу проверить тему", self.now)
         self.writer.error = None
-        replay = self.app.handle_callback(callback)
+        replay = self.app.handle_message(14, "Добавь задачу проверить тему", self.now)
 
         self.assertIn("Проверь Tasks", first.text)
         self.assertEqual(first, replay)
         self.assertEqual(self.writer.drafts, [])
 
     def test_explicit_notion_rejection_is_recorded(self):
-        prompt = self.app.handle_message(15, "Добавь задачу проверить тему", self.now)
-        proposal_id = prompt.button_rows[0][0].callback_data.split(":")[1]
         self.writer.error = TaskWriteRejected()
 
-        result = self.app.handle_callback(prompt.button_rows[0][0].callback_data)
+        result = self.app.handle_message(15, "Добавь задачу проверить тему", self.now)
 
         self.assertIn("Notion отклонил", result.text)
+        proposal_id = self.repository.proposal_for_update(15).id
         self.assertEqual(self.repository.get_proposal(proposal_id).status, "rejected")
 
     def test_runtime_keeps_creation_status_out_of_deadline_adapter_config(self):
