@@ -56,6 +56,9 @@ class TelegramClient:
     def set_my_commands(self, commands: list[dict[str, str]]) -> None:
         self.request("setMyCommands", {"commands": commands})
 
+    def answer_callback_query(self, callback_query_id: str) -> None:
+        self.request("answerCallbackQuery", {"callback_query_id": callback_query_id})
+
     def send_message(
         self,
         chat_id: str,
@@ -92,7 +95,7 @@ class TelegramClient:
                 "offset": offset,
                 "timeout": 15,
                 "limit": 20,
-                "allowed_updates": ["message"],
+                "allowed_updates": ["message", "callback_query"],
             },
         )
         if not isinstance(result, list):

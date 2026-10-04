@@ -72,7 +72,10 @@ class GroqClient:
     def model(self) -> str:
         return self._model
 
-    def complete(self, system: str, user: str) -> str:
+    def complete(self, system: str, user: str, *, max_output_tokens: int | None = None) -> str:
+        output_tokens = self._max_output_tokens if max_output_tokens is None else max_output_tokens
+        if output_tokens <= 0:
+            raise ValueError("max_output_tokens must be positive")
         payload = {
             "model": self._model,
             "messages": [
@@ -80,12 +83,12 @@ class GroqClient:
                 {"role": "user", "content": user},
             ],
             "temperature": 0.2,
-            "max_completion_tokens": _MAX_COMPLETION_TOKENS,
+            "max_completion_tokens": min(output_tokens, _MAX_COMPLETION_TOKENS),
         }
         if self._model.startswith("openai/gpt-oss-"):
             payload["reasoning_effort"] = "medium"
             payload["include_reasoning"] = False
-            payload["max_completion_tokens"] = 3000
+            payload["max_completion_tokens"] = min(output_tokens, _MAX_COMPLETION_TOKENS)
         response = self._request("POST", "chat/completions", payload)
         try:
             decoded = json.loads(response)

@@ -7,9 +7,14 @@ from queue import Empty, SimpleQueue
 
 from dontanello.entrypoints.telegram import TelegramCommands
 from dontanello.entrypoints.worker import Job
+from dontanello.integrations.google_calendar.client import GoogleCalendarClient
 from dontanello.integrations.groq.client import GroqClient
 from dontanello.integrations.notion.client import NotionClient
 from dontanello.integrations.telegram.client import TelegramClient
+from dontanello.modules.calendar_planning import CalendarPlanningApplication
+from dontanello.modules.calendar_planning.adapters.google_calendar import GoogleCalendarAdapter
+from dontanello.modules.calendar_planning.adapters.groq import GroqPlanningInterpreter
+from dontanello.modules.calendar_planning.adapters.sqlite import SQLitePlanningRepository
 from dontanello.modules.completion import CompletionTracker
 from dontanello.modules.completion.adapters.json_state import JsonCheckboxState
 from dontanello.modules.completion.adapters.notion import (
@@ -59,6 +64,7 @@ class Runtime:
     task_deadline_source: NotionTaskDeadlineSource | None = None
     reminders_app: ReminderApplication | None = None
     inbox_app: InboxCaptureApplication | None = None
+    planning_app: CalendarPlanningApplication | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -104,6 +110,16 @@ class Runtime:
             if self.settings.groq_model not in models:
                 raise ValueError("GROQ_MODEL недоступна")
             print("Groq: " + self.settings.groq_model + " OK")
+        if self.settings.groq_planning_api_key:
+            models = GroqClient(
+                self.settings.groq_planning_api_key,
+                self.settings.groq_planning_model,
+                timeout=15,
+                max_output_tokens=250,
+            ).models()
+            if self.settings.groq_planning_model not in models:
+                raise ValueError("GROQ_PLANNING_MODEL недоступна")
+            print("Groq planning: " + self.settings.groq_planning_model + " OK")
 
     def jobs(self) -> list[Job]:
         state = JsonCheckboxState(self.settings.root / "state" / "checkboxes.json")
@@ -204,6 +220,7 @@ class Runtime:
             weekly_weekday=weekly_weekday,
             reminders=self.reminders_app,
             inbox=self.inbox_app,
+            planning=self.planning_app,
         )
         menu = [
             {"command": "week", "description": "Обзор за прошлую неделю"},
@@ -298,6 +315,34 @@ def build_runtime(settings: Settings) -> Runtime:
             client, NotionTaskConfig(**notion_task_config), settings.timezone
         )
     runtime = Runtime(settings, sources, report_sources, task_deadline_source=task_deadline_source)
+    planning_config = settings.config.get("calendar_planning", {})
+    if planning_config:
+        calendar_client = GoogleCalendarClient(
+            settings.google_calendar_client_secret_file
+            or settings.root / "client_secret_not_configured.json",
+            settings.root / "state" / "google_calendar_token.json",
+            planning_config.get("calendar_id", "primary"),
+        )
+        interpreter = None
+        if settings.groq_planning_api_key:
+            interpreter = GroqPlanningInterpreter(
+                GroqClient(
+                    settings.groq_planning_api_key,
+                    settings.groq_planning_model,
+                    timeout=15,
+                    max_output_tokens=250,
+                )
+            )
+        runtime.planning_app = CalendarPlanningApplication(
+            SQLitePlanningRepository(settings.root / "state" / "calendar_planning.sqlite3"),
+            GoogleCalendarAdapter(calendar_client, settings.timezone),
+            settings.timezone,
+            day_start=time.fromisoformat(planning_config.get("day_start", "08:00")),
+            day_end=time.fromisoformat(planning_config.get("day_end", "22:00")),
+            buffer_minutes=planning_config.get("buffer_minutes", 15),
+            interpreter=interpreter,
+            timezone_name=settings.timezone.key,
+        )
     inbox_config = settings.config.get("inbox")
     if inbox_config:
         runtime.inbox_app = InboxCaptureApplication(

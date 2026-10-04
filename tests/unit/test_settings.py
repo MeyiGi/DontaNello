@@ -158,6 +158,37 @@ class SettingsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "GROQ_MODEL"):
                 load_settings(self.root)
 
+    def test_calendar_settings_validate_window_and_buffer_without_disabling_bot(self):
+        config = {"completion_sources": [self.source], "calendar_planning": {}}
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with patch.dict("os.environ", {}, clear=True):
+            settings = load_settings(self.root)
+        self.assertIsNone(settings.google_calendar_client_secret_file)
+        config["calendar_planning"] = {"day_start": "23:00", "day_end": "22:00"}
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            self.assertRaisesRegex(ValueError, "day_start"),
+        ):
+            load_settings(self.root)
+
+    def test_planning_model_uses_its_own_key_and_does_not_change_report_model(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "GROQ_API_KEY": "report-key",
+                "GROQ_MODEL": "report-model",
+                "GROQ_PLANNING_API_KEY": "planner-key",
+                "GROQ_PLANNING_MODEL": "planner-model",
+            },
+            clear=True,
+        ):
+            settings = load_settings(self.root)
+        self.assertEqual(settings.groq_model, "report-model")
+        self.assertEqual(settings.groq_planning_model, "planner-model")
+        for secret in ("report-key", "planner-key"):
+            self.assertNotIn(secret, repr(settings))
+
     def test_personal_reports_cannot_be_configured_for_a_group(self):
         with patch.dict("os.environ", {"TELEGRAM_CHAT_ID": "-1001234567890"}, clear=True):
             with self.assertRaisesRegex(ValueError, "личного чата"):

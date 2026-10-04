@@ -21,6 +21,9 @@ class Settings:
     groq_api_key: str = field(default="", repr=False)
     groq_model: str = "openai/gpt-oss-120b"
     groq_api_keys: tuple[str, ...] = field(default=(), repr=False)
+    groq_planning_api_key: str = field(default="", repr=False)
+    groq_planning_model: str = "openai/gpt-oss-20b"
+    google_calendar_client_secret_file: Path | None = field(default=None, repr=False)
 
 
 def load_settings(root: Path) -> Settings:
@@ -30,8 +33,8 @@ def load_settings(root: Path) -> Settings:
         for line in env_file.read_text().splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
-                key, value = line.split("=", 1)
-                environment[key.strip()] = value.strip()
+                key, env_value = line.split("=", 1)
+                environment[key.strip()] = env_value.strip()
     environment.update(os.environ)
     token = environment.get("NOTION_TOKEN", "")
     if not token:
@@ -57,10 +60,32 @@ def load_settings(root: Path) -> Settings:
     operations = config.get("operations", {})
     reminders = config.get("reminders", {})
     inbox = config.get("inbox", {})
+    planning = config.get("calendar_planning", {})
     if not isinstance(reports, dict) or not isinstance(operations, dict):
         raise ValueError("Некорректные настройки reports/operations")
     if not isinstance(inbox, dict):
         raise ValueError("inbox должен быть объектом")
+    if not isinstance(planning, dict):
+        raise ValueError("calendar_planning должен быть объектом")
+    if planning:
+        for time_key, time_default in (("day_start", "08:00"), ("day_end", "22:00")):
+            raw_time = planning.get(time_key, time_default)
+            try:
+                parsed = time.fromisoformat(raw_time) if isinstance(raw_time, str) else None
+            except ValueError:
+                parsed = None
+            if parsed is None or parsed.second or parsed.microsecond or len(raw_time) != 5:
+                raise ValueError(f"calendar_planning.{time_key} должен быть временем HH:MM")
+        start = time.fromisoformat(planning.get("day_start", "08:00"))
+        end = time.fromisoformat(planning.get("day_end", "22:00"))
+        if start >= end:
+            raise ValueError("calendar_planning.day_start должен быть раньше day_end")
+        buffer_minutes = planning.get("buffer_minutes", 15)
+        if type(buffer_minutes) is not int or not 0 <= buffer_minutes <= 60:
+            raise ValueError("calendar_planning.buffer_minutes должен быть от 0 до 60")
+        calendar_id = planning.get("calendar_id", "primary")
+        if not isinstance(calendar_id, str) or not calendar_id:
+            raise ValueError("calendar_planning.calendar_id должен быть непустой строкой")
     if inbox and any(
         not isinstance(inbox.get(key), str) or not inbox[key]
         for key in ("data_source_id", "title_property")
@@ -112,10 +137,10 @@ def load_settings(root: Path) -> Settings:
                 raise ValueError(f"reminders.notion_tasks.{key} должен быть непустой строкой")
     if type(reports.get("enabled", False)) is not bool:
         raise ValueError("reports.enabled должен быть boolean")
-    for name, default, maximum in (("hour", 9, 23), ("minute", 0, 59)):
-        value = reports.get(name, default)
-        if type(value) is not int or not 0 <= value <= maximum:
-            raise ValueError(f"Некорректное время отчётов: {name}")
+    for report_key, report_default, maximum in (("hour", 9, 23), ("minute", 0, 59)):
+        report_setting = reports.get(report_key, report_default)
+        if type(report_setting) is not int or not 0 <= report_setting <= maximum:
+            raise ValueError(f"Некорректное время отчётов: {report_key}")
     weekly_weekday = reports.get("weekly_weekday", 0)
     if type(weekly_weekday) is not int or not 0 <= weekly_weekday <= 6:
         raise ValueError(
@@ -135,10 +160,13 @@ def load_settings(root: Path) -> Settings:
                 not isinstance(value, str) for value in source.get(key, [])
             ):
                 raise ValueError(f"Источник отчёта: {key} должен быть списком строк")
-    for key, default in (("backup_retention", 14), ("alert_cooldown_seconds", 3600)):
-        value = operations.get(key, default)
-        if type(value) is not int or value < 1:
-            raise ValueError(f"operations.{key} должен быть положительным целым числом")
+    for operation_key, operation_default in (
+        ("backup_retention", 14),
+        ("alert_cooldown_seconds", 3600),
+    ):
+        operation_setting = operations.get(operation_key, operation_default)
+        if type(operation_setting) is not int or operation_setting < 1:
+            raise ValueError(f"operations.{operation_key} должен быть положительным целым числом")
     chat_id = environment.get("TELEGRAM_CHAT_ID", "").strip()
     if chat_id:
         try:
@@ -165,12 +193,27 @@ def load_settings(root: Path) -> Settings:
     groq_model = environment.get("GROQ_MODEL", "openai/gpt-oss-120b").strip()
     if groq_key and not groq_model:
         raise ValueError("GROQ_MODEL не задан")
+    groq_planning_key = environment.get("GROQ_PLANNING_API_KEY", "").strip()
+    groq_planning_model = environment.get("GROQ_PLANNING_MODEL", "openai/gpt-oss-20b").strip()
+    if groq_planning_key and not groq_planning_model:
+        raise ValueError("GROQ_PLANNING_MODEL не задан")
     if reports.get("enabled") and not groq_key:
         raise ValueError("Включённые отчёты требуют GROQ_API_KEY")
+    calendar_client_secret = environment.get("GOOGLE_CALENDAR_CLIENT_SECRET_FILE", "").strip()
+    secret_path: Path | None
+    if calendar_client_secret:
+        secret_path = Path(calendar_client_secret).expanduser()
+        if not secret_path.is_absolute():
+            secret_path = root / secret_path
+    elif planning:
+        matches = sorted(root.glob("client_secret_*.json"))
+        secret_path = matches[0] if len(matches) == 1 else None
+    else:
+        secret_path = None
     ai = reports.get("ai", {})
     if not isinstance(ai, dict):
         raise ValueError("reports.ai должен быть объектом")
-    for name, default, maximum in (
+    for ai_key, ai_default, maximum in (
         ("max_rounds", 3, 3),
         ("max_batch_chars", 10_000, 20_000),
         ("max_batches", 24, 48),
@@ -180,9 +223,9 @@ def load_settings(root: Path) -> Settings:
         ("max_history_records", 80, 500),
         ("timeout_seconds", 180, 600),
     ):
-        value = ai.get(name, default)
-        if type(value) is not int or not 1 <= value <= maximum:
-            raise ValueError(f"Некорректный лимит reports.ai.{name}")
+        ai_setting = ai.get(ai_key, ai_default)
+        if type(ai_setting) is not int or not 1 <= ai_setting <= maximum:
+            raise ValueError(f"Некорректный лимит reports.ai.{ai_key}")
     for name, effort_default in (("weekly_reasoning", "medium"), ("monthly_reasoning", "high")):
         if ai.get(name, effort_default) not in {"low", "medium", "high"}:
             raise ValueError(f"reports.ai.{name} должен быть low/medium/high")
@@ -197,4 +240,7 @@ def load_settings(root: Path) -> Settings:
         groq_api_key=groq_key,
         groq_model=groq_model,
         groq_api_keys=groq_keys,
+        groq_planning_api_key=groq_planning_key,
+        groq_planning_model=groq_planning_model,
+        google_calendar_client_secret_file=secret_path,
     )

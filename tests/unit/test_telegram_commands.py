@@ -6,6 +6,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from dontanello.entrypoints.telegram import PERSONAL_KEYBOARD, TelegramCommands
+from dontanello.modules.calendar_planning import InlineButton, PlannerResponse
 from dontanello.modules.reports import DeliveryRejected, DeliveryService, DeliveryUncertain
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -16,17 +17,23 @@ class FakeTelegram:
         self.items = []
         self.sent = []
         self.parse_modes = []
+        self.markups = []
+        self.answered_callbacks = []
         self.error = None
 
     def updates(self, offset):
         return [item for item in self.items if item["update_id"] >= offset]
 
-    def send_message(self, chat_id, text, parse_mode=None):
+    def send_message(self, chat_id, text, parse_mode=None, reply_markup=None):
         if self.error:
             raise self.error
         self.sent.append((chat_id, text))
         self.parse_modes.append(parse_mode)
+        self.markups.append(reply_markup)
         return len(self.sent)
+
+    def answer_callback_query(self, callback_query_id):
+        self.answered_callbacks.append(callback_query_id)
 
 
 class FakeReminders:
@@ -66,6 +73,26 @@ class FakeInbox:
         return "inbox response"
 
 
+class FakePlanning:
+    def __init__(self):
+        self.calls = []
+        self.callback_calls = []
+
+    def accepts_message(self, text, now):
+        return text.startswith("сегодня хочу")
+
+    def handle_message(self, update_id, text, now):
+        self.calls.append((update_id, text))
+        return PlannerResponse(
+            "suggested",
+            ((InlineButton("Add", "p:proposal:add"),),),
+        )
+
+    def handle_callback(self, data, now):
+        self.callback_calls.append(data)
+        return PlannerResponse("created")
+
+
 def update(identifier, chat_id=123, kind="private", command="/week"):
     return {
         "update_id": identifier,
@@ -73,6 +100,19 @@ def update(identifier, chat_id=123, kind="private", command="/week"):
             "chat": {"id": chat_id, "type": kind},
             "from": {"is_bot": False},
             "text": command,
+        },
+    }
+
+
+def callback_update(identifier, callback_id="cb-1", chat_id=123, user_id=123, kind="private"):
+    return {
+        "update_id": identifier,
+        "callback_query": {
+            "id": callback_id,
+            "from": {"id": user_id, "is_bot": False},
+            "chat_instance": "instance",
+            "data": "p:proposal:add",
+            "message": {"chat": {"id": chat_id, "type": kind}},
         },
     }
 
@@ -210,6 +250,35 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
         self.assertEqual(len(reminders.calls), 1)
         self.assertIn("reminder response", self.telegram.sent[0][1])
+
+    def test_calendar_request_sends_inline_confirmation_without_side_effect(self):
+        planning = FakePlanning()
+        self.commands.planning = planning
+        self.telegram.items = [update(1, command="сегодня хочу 1 час почитать")]
+
+        self.commands.run()
+
+        self.assertEqual(len(planning.calls), 1)
+        self.assertEqual(self.telegram.sent[0][1], "suggested")
+        self.assertEqual(
+            self.telegram.markups[0],
+            {"inline_keyboard": [[{"text": "Add", "callback_data": "p:proposal:add"}]]},
+        )
+
+    def test_callback_actions_are_private_and_durable(self):
+        planning = FakePlanning()
+        self.commands.planning = planning
+        self.telegram.items = [
+            callback_update(1, callback_id="denied", user_id=999),
+            callback_update(2, callback_id="allowed"),
+        ]
+
+        self.commands.run()
+
+        self.assertEqual(planning.callback_calls, ["p:proposal:add"])
+        self.assertEqual(self.telegram.answered_callbacks, ["denied", "allowed"])
+        self.assertEqual(self.telegram.sent[-1][1], "created")
+        self.assertEqual(self.cursor.load(), 3)
 
     def test_help_menu_groups_personal_features_without_work_commands(self):
         self.telegram.items = [update(1, command="/help")]

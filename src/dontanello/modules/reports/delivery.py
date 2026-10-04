@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 
 class DeliveryRejected(RuntimeError):
@@ -16,7 +16,13 @@ class DeliveryUncertain(RuntimeError):
 
 
 class MessageSender(Protocol):
-    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int: ...
+    def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -27,11 +33,17 @@ class DeliveryChunk:
     message_id: int | None = None
     next_attempt: datetime | None = None
     parse_mode: str | None = None
+    reply_markup: dict[str, Any] | None = None
 
 
 class DeliveryStore(Protocol):
     def prepare(
-        self, key: str, chunks: Sequence[str], now: datetime, parse_mode: str | None = None
+        self,
+        key: str,
+        chunks: Sequence[str],
+        now: datetime,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
     ) -> None: ...
     def chunks(self, key: str) -> Sequence[DeliveryChunk]: ...
     def claim_chunk(self, key: str, index: int, now: datetime) -> bool: ...
@@ -108,10 +120,21 @@ class DeliveryService:
         chunks = self.store.chunks(self._key(key))
         return "".join(chunk.text for chunk in chunks) if chunks else None
 
-    def deliver(self, key: str, text: str, now: datetime, parse_mode: str | None = None) -> int:
+    def existing_reply_markup(self, key: str) -> dict[str, Any] | None:
+        chunks = self.store.chunks(self._key(key))
+        return chunks[0].reply_markup if chunks else None
+
+    def deliver(
+        self,
+        key: str,
+        text: str,
+        now: datetime,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> int:
         scoped_key = self._key(key)
         # Insert once: retries always use the first durable content snapshot.
-        self.store.prepare(scoped_key, split_message(text), now, parse_mode)
+        self.store.prepare(scoped_key, split_message(text), now, parse_mode, reply_markup)
         self.store.recover_stale_sending(scoped_key)
         sent = 0
         for chunk in self.store.chunks(scoped_key):
@@ -124,11 +147,15 @@ class DeliveryService:
             if not self.store.claim_chunk(scoped_key, chunk.index, now):
                 break
             try:
-                if chunk.parse_mode is None:
+                if chunk.parse_mode is None and chunk.reply_markup is None:
                     message_id = self.sender.send_message(self.chat_id, chunk.text)
-                else:
+                elif chunk.reply_markup is None:
                     message_id = self.sender.send_message(
                         self.chat_id, chunk.text, chunk.parse_mode
+                    )
+                else:
+                    message_id = self.sender.send_message(
+                        self.chat_id, chunk.text, chunk.parse_mode, chunk.reply_markup
                     )
             except DeliveryRejected:
                 self.store.mark_pending(

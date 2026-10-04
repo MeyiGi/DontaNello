@@ -1,6 +1,6 @@
 # Dontanello: архитектура развития
 
-Статус: внедрены completion, reports, reminders и operations. Telegram принимает команды из настроенного личного чата; отчёты, планирование дедлайнов и личных напоминаний, локальные копии и уведомления реализованы. Политики доставки и восстановления описаны в [ADR 0002](decisions/0002-reports-and-operations.md), структурированные обзоры прогресса — в [ADR 0004](decisions/0004-progress-reviews.md), анализ через Groq — в [ADR 0005](decisions/0005-groq-progress-analysis.md), компактация истории — в [ADR 0006](decisions/0006-report-event-compaction.md), напоминания — в [ADR 0007](decisions/0007-telegram-reminders.md).
+Статус: внедрены completion, reports, reminders, calendar planning и operations. Telegram принимает команды из настроенного личного чата; отчёты, планирование дедлайнов, личных напоминаний и одноразовых календарных блоков, локальные копии и уведомления реализованы. Политики доставки и восстановления описаны в [ADR 0002](decisions/0002-reports-and-operations.md), структурированные обзоры прогресса — в [ADR 0004](decisions/0004-progress-reviews.md), анализ через Groq — в [ADR 0005](decisions/0005-groq-progress-analysis.md), компактация истории — в [ADR 0006](decisions/0006-report-event-compaction.md), напоминания — в [ADR 0007](decisions/0007-telegram-reminders.md), календарное планирование — в [ADR 0008](decisions/0008-google-calendar-planning.md).
 
 ## Цель
 
@@ -28,6 +28,15 @@ src/dontanello/
       adapters/
         notion.py              # create Inbox data-source items
         sqlite.py              # idempotency and uncertain outcomes
+    calendar_planning/
+      models.py                # requested work, suggested slots and Telegram actions
+      application.py           # free-time proposals, confirmation, conflict check and undo
+      parser.py                # deterministic Russian request parsing
+      ports.py                 # calendar, proposal repository and optional parser contracts
+      adapters/
+        google_calendar.py     # Calendar API ↔ planning models
+        groq.py                # optional extraction fallback for complex phrases
+        sqlite.py              # durable proposal and event identity
     completion/
       models.py                # типизированные наблюдения и решения
       application.py           # переход чекбокса → дата
@@ -63,6 +72,7 @@ src/dontanello/
   integrations/
     notion/client.py           # HTTP, ограничения API, пагинация; без правил задач
     telegram/client.py         # транспорт Telegram; без правил отчётов
+    google_calendar/client.py  # OAuth, token refresh and narrow Calendar API transport
     groq/client.py             # HTTP Groq, ограниченный failover ключей при 429
   platform/                    # настройки, часы, логирование, управление ресурсами
 tests/
@@ -132,6 +142,7 @@ JSON текущего watcher сохранён без изменения клю�
 4. Выполнено: Telegram с проверкой настроенного личного чата и тонкими обработчиками команд.
 5. Выполнено: reports, SQLite-журнал доставки, политика повторов/неопределённого результата, расписание и operations с копиями/уведомлениями.
 6. Выполнено: reminders с настраиваемым Telegram-дайджестом дедлайнов, естественными личными напоминаниями и отдельным SQLite-журналом.
+7. Выполнено: calendar planning с предложением свободных слотов, подтверждением и повторной проверкой Calendar перед созданием события.
 
 При переносе не менять даты, чекбоксы, ключи сохранённого состояния или baseline. Миграция хранилища требует резервной копии, теста и безопасного возврата. Архитектурный рефакторинг и новые правила выполнения оформлять отдельными изменениями, где возможно.
 

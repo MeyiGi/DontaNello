@@ -20,10 +20,14 @@ class RecordingSender:
         self.outcomes = list(outcomes)
         self.sent = []
         self.parse_modes = []
+        self.markups = []
 
-    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int:
+    def send_message(
+        self, chat_id: str, text: str, parse_mode: str | None = None, reply_markup=None
+    ) -> int:
         self.sent.append((chat_id, text))
         self.parse_modes.append(parse_mode)
+        self.markups.append(reply_markup)
         if self.outcomes:
             outcome = self.outcomes.pop(0)
             if isinstance(outcome, BaseException):
@@ -91,6 +95,18 @@ class ReportDeliveryTests(unittest.TestCase):
             restarted.deliver("task-overview", "changed", self.now + timedelta(minutes=5)), 1
         )
         self.assertEqual(sender.parse_modes, ["HTML", "HTML"])
+
+    def test_retry_preserves_inline_keyboard_with_first_delivery_snapshot(self):
+        sender = RecordingSender((DeliveryRejected("busy"), 2))
+        service = DeliveryService(self.store, sender, "chat-1")
+        markup = {"inline_keyboard": [[{"text": "Add", "callback_data": "p:x:add"}]]}
+        with self.assertRaises(DeliveryRejected):
+            service.deliver("planner", "proposal", self.now, reply_markup=markup)
+
+        restarted = DeliveryService(self.store, sender, "chat-1")
+        restarted.deliver("planner", "changed", self.now + timedelta(minutes=5))
+        self.assertEqual(sender.markups, [markup, markup])
+        self.assertEqual(restarted.existing_reply_markup("planner"), markup)
 
     def test_backoff_on_earlier_chunk_keeps_later_chunks_in_order(self):
         sender = RecordingSender((DeliveryRejected("busy"), 2, 3))
@@ -173,7 +189,7 @@ class ReportDeliveryTests(unittest.TestCase):
         self.assertEqual((chunk.text, chunk.status, chunk.message_id), ("saved text", "sent", 77))
         self.assertIsNone(chunk.parse_mode)
         check = sqlite3.connect(path)
-        self.assertEqual(check.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(check.execute("PRAGMA user_version").fetchone()[0], 3)
         check.close()
 
 

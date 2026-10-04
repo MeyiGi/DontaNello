@@ -9,6 +9,12 @@
     "data_source_id": "24943782-a882-8384-9cd3-878c24ded0fd",
     "title_property": "Name"
   },
+  "calendar_planning": {
+    "calendar_id": "primary",
+    "day_start": "08:00",
+    "day_end": "22:00",
+    "buffer_minutes": 15
+  },
   "reminders": {
     "enabled": true,
     "weekdays": [0, 1, 2, 3, 4, 5, 6],

@@ -1,0 +1,26 @@
+# Personal calendar planning
+
+DontaNello accepts natural-language requests to reserve focused time in the owner's Google Calendar. This capability is private to the configured personal Telegram chat and is separate from DontaNello Work.
+
+## Request and slot behavior
+
+- The configured Google Calendar is the source of truth for busy time. Do not maintain a separate weekly schedule.
+- Interpret explicit dates, durations, and time ranges deterministically when possible. An optional, separately configured Groq model may extract a structured request only when deterministic parsing cannot handle an otherwise clear planning request. Model output never creates an event directly.
+- Use the configured timezone (default `Asia/Bishkek`), planning window (default 08:00–22:00), and buffer (default 15 minutes) around existing events.
+- Suggest no more than three free options, preserving time for the rest of the day where possible. If the requested fixed time conflicts or is outside the planning window, explain why and offer free options when available.
+- Suggestions are proposals only. Create a one-time calendar event only after the user presses the confirmation button. Fetch calendar events again immediately before creation; do not silently create a conflict.
+- A successful creation response includes an undo button. Undo deletes only the event whose private Google Calendar proposal identity matches the stored proposal.
+
+## Persistence and failure behavior
+
+- Persist proposals by Telegram update ID so Telegram update replay does not create duplicate proposals. Keep the selected slot and remote event ID through process restarts.
+- Use a stable Google event ID and private proposal identity so retry after an uncertain API response is idempotent. A retry verifies that identity before treating an existing event as DontaNello's.
+- Keep proposal state in the calendar-planning SQLite database. Keep Telegram message delivery and inline markup in the existing durable delivery journal.
+- Google credentials are obtained through an explicit local OAuth flow and stored under `state/` with owner-only permissions. OAuth client secrets and tokens are never committed.
+- If Google Calendar is unauthorized or unavailable, tell the user that no event was created. Do not substitute assumptions about availability.
+- Before processing messages or callbacks, Telegram verifies both the configured private chat and the individual user identity. Group chats cannot read a calendar or invoke personal actions.
+
+## Non-goals
+
+- No recurring events, automatic placement without confirmation, hardcoded weekly availability, sleep inference, or general-purpose AI scheduling.
+- No DontaNello Work sources, accounts, or commands.

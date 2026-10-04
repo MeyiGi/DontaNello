@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dontanello.bootstrap import build_runtime, restore_backup, verify_backup
 from dontanello.entrypoints.worker import run_worker
+from dontanello.integrations.google_calendar.client import GoogleCalendarClient
 from dontanello.modules.reports import previous_month, previous_week
 from dontanello.platform.locking import worker_lock
 from dontanello.platform.settings import load_settings
@@ -15,6 +16,11 @@ def main(root: Path | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--check", action="store_true", help="Read-only connection/schema check")
+    parser.add_argument(
+        "--authorize-calendar",
+        action="store_true",
+        help="Connect this installation to Google Calendar",
+    )
     parser.add_argument("--root", type=Path, default=root or Path.cwd())
     parser.add_argument("--full", action="store_true", help="Full detail with --preview-report")
     parser.add_argument("--verify-backup", metavar="YYYY-MM-DD")
@@ -42,6 +48,19 @@ def main(root: Path | None = None) -> None:
         return
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = load_settings(project_root)
+    if args.authorize_calendar:
+        if settings.google_calendar_client_secret_file is None:
+            parser.error("calendar_planning не настроен или OAuth client file не найден")
+        calendar_config = settings.config.get("calendar_planning", {})
+        client = GoogleCalendarClient(
+            settings.google_calendar_client_secret_file,
+            settings.root / "state" / "google_calendar_token.json",
+            calendar_config.get("calendar_id", "primary"),
+        )
+        # Token replacement is atomic, so OAuth can run beside the polling worker.
+        client.authorize()
+        print("Google Calendar подключён. Токен сохранён локально с приватными правами.")
+        return
     runtime = build_runtime(settings)
     if args.check:
         runtime.check()

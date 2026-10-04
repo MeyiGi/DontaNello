@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -21,7 +22,7 @@ class SQLiteDeliveryStore:
         connection.execute("PRAGMA busy_timeout = 10000")
         connection.execute("PRAGMA journal_mode = WAL")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2):
+        if version not in (0, 1, 2, 3):
             connection.close()
             raise RuntimeError("Unsupported report journal schema version")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -39,6 +40,7 @@ class SQLiteDeliveryStore:
                 message_id INTEGER,
                 next_attempt TEXT,
                 parse_mode TEXT NOT NULL DEFAULT '',
+                reply_markup TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (delivery_key, chunk_index)
             );
             CREATE INDEX IF NOT EXISTS report_chunk_status
@@ -57,7 +59,11 @@ class SQLiteDeliveryStore:
             connection.execute(
                 "ALTER TABLE report_delivery_chunk ADD COLUMN parse_mode TEXT NOT NULL DEFAULT ''"
             )
-        connection.execute("PRAGMA user_version = 2")
+        if "reply_markup" not in columns:
+            connection.execute(
+                "ALTER TABLE report_delivery_chunk ADD COLUMN reply_markup TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute("PRAGMA user_version = 3")
         return connection
 
     @staticmethod
@@ -74,6 +80,7 @@ class SQLiteDeliveryStore:
         chunks: Sequence[str],
         now: datetime,
         parse_mode: str | None = None,
+        reply_markup: dict[str, object] | None = None,
     ) -> None:
         connection = self._connect()
         try:
@@ -88,9 +95,18 @@ class SQLiteDeliveryStore:
             if exists is None:
                 connection.executemany(
                     """INSERT INTO report_delivery_chunk
-                       (delivery_key, chunk_index, text, status, parse_mode)
-                       VALUES (?, ?, ?, 'pending', ?)""",
-                    [(key, index, text, parse_mode or "") for index, text in enumerate(chunks)],
+                       (delivery_key, chunk_index, text, status, parse_mode, reply_markup)
+                       VALUES (?, ?, ?, 'pending', ?, ?)""",
+                    [
+                        (
+                            key,
+                            index,
+                            text,
+                            parse_mode or "",
+                            json.dumps(reply_markup, separators=(",", ":")) if reply_markup else "",
+                        )
+                        for index, text in enumerate(chunks)
+                    ],
                 )
             connection.commit()
         except Exception:
@@ -103,7 +119,7 @@ class SQLiteDeliveryStore:
         connection = self._connect()
         try:
             rows = connection.execute(
-                """SELECT chunk_index, text, status, message_id, next_attempt, parse_mode
+                """SELECT chunk_index, text, status, message_id, next_attempt, parse_mode, reply_markup
                    FROM report_delivery_chunk WHERE delivery_key = ? ORDER BY chunk_index""",
                 (key,),
             ).fetchall()
@@ -115,6 +131,7 @@ class SQLiteDeliveryStore:
                     message_id=row["message_id"],
                     next_attempt=self._datetime(row["next_attempt"]),
                     parse_mode=row["parse_mode"] or None,
+                    reply_markup=json.loads(row["reply_markup"]) if row["reply_markup"] else None,
                 )
                 for row in rows
             )

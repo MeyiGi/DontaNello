@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/meyigi/personal/personal/30_personal/dontanello
-ExecStart=/usr/bin/python3 /home/meyigi/personal/personal/30_personal/dontanello/assistant.py
+ExecStart=/home/meyigi/personal/personal/30_personal/dontanello/.venv/bin/python /home/meyigi/personal/personal/30_personal/dontanello/assistant.py
 Restart=on-failure
 RestartSec=15
 UMask=0077

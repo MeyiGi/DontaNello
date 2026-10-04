@@ -23,6 +23,7 @@ class FileBackupStore:
         "state/progress.sqlite3",
         "state/reminders.sqlite3",
         "state/inbox.sqlite3",
+        "state/calendar_planning.sqlite3",
         "config/settings.json",
     )
     REQUIRED = "state/checkboxes.json"
@@ -207,6 +208,7 @@ class FileBackupStore:
         delivery_path = "state/reports.sqlite3"
         reminders_path = "state/reminders.sqlite3"
         inbox_path = "state/inbox.sqlite3"
+        planning_path = "state/calendar_planning.sqlite3"
         progress_path = "state/progress.sqlite3"
         restore_delivery = delivery_path in files and (
             restore_delivery_history or not (self.root / delivery_path).exists()
@@ -217,19 +219,23 @@ class FileBackupStore:
         restore_inbox = inbox_path in files and (
             restore_delivery_history or not (self.root / inbox_path).exists()
         )
+        restore_planning = planning_path in files and (
+            restore_delivery_history or not (self.root / planning_path).exists()
+        )
         restore_files = [
             relative
             for relative in selected
             if (relative != delivery_path or restore_delivery)
             and (relative != reminders_path or restore_reminders)
             and (relative != inbox_path or restore_inbox)
+            and (relative != planning_path or restore_planning)
         ]
 
         targets = {relative: self._check_restore_target(relative) for relative in selected}
         databases_to_restore = [
             relative
             for relative in restore_files
-            if relative in (delivery_path, progress_path, reminders_path, inbox_path)
+            if relative in (delivery_path, progress_path, reminders_path, inbox_path, planning_path)
         ]
         for database_path in databases_to_restore:
             for suffix in ("-wal", "-shm"):
@@ -261,7 +267,13 @@ class FileBackupStore:
             for relative in restore_files:
                 staged[relative].replace(targets[relative])
                 os.chmod(targets[relative], 0o600)
-                if relative in (delivery_path, progress_path, reminders_path, inbox_path):
+                if relative in (
+                    delivery_path,
+                    progress_path,
+                    reminders_path,
+                    inbox_path,
+                    planning_path,
+                ):
                     for suffix in ("-wal", "-shm"):
                         sidecar = self._check_restore_target(relative + suffix)
                         sidecar.unlink(missing_ok=True)
