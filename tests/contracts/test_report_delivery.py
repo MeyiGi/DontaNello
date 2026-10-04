@@ -1,5 +1,6 @@
 """Delivery journal contract tests against the real SQLite adapter."""
 
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -18,9 +19,11 @@ class RecordingSender:
     def __init__(self, outcomes=()):
         self.outcomes = list(outcomes)
         self.sent = []
+        self.parse_modes = []
 
-    def send_message(self, chat_id: str, text: str) -> int:
+    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int:
         self.sent.append((chat_id, text))
+        self.parse_modes.append(parse_mode)
         if self.outcomes:
             outcome = self.outcomes.pop(0)
             if isinstance(outcome, BaseException):
@@ -77,6 +80,18 @@ class ReportDeliveryTests(unittest.TestCase):
         self.assertFalse(service.needs_delivery("daily", self.now + timedelta(minutes=4)))
         self.assertEqual(service.deliver("daily", "hello", self.now + timedelta(minutes=5)), 1)
 
+    def test_retry_uses_parse_mode_saved_with_first_delivery_snapshot(self):
+        sender = RecordingSender((DeliveryRejected("busy"), 2))
+        service = DeliveryService(self.store, sender, "chat-1")
+        with self.assertRaises(DeliveryRejected):
+            service.deliver("task-overview", "<b>Today</b>", self.now, parse_mode="HTML")
+
+        restarted = DeliveryService(self.store, sender, "chat-1")
+        self.assertEqual(
+            restarted.deliver("task-overview", "changed", self.now + timedelta(minutes=5)), 1
+        )
+        self.assertEqual(sender.parse_modes, ["HTML", "HTML"])
+
     def test_backoff_on_earlier_chunk_keeps_later_chunks_in_order(self):
         sender = RecordingSender((DeliveryRejected("busy"), 2, 3))
         service = DeliveryService(self.store, sender, "chat-1")
@@ -128,6 +143,38 @@ class ReportDeliveryTests(unittest.TestCase):
         self.assertEqual(self.store.active_since(self.now), self.now.date())
         later = self.now + timedelta(days=2)
         self.assertEqual(self.store.active_since(later), self.now.date())
+
+    def test_schema_migrates_existing_chunks_without_changing_delivery_state(self):
+        path = Path(self.tempdir.name) / "legacy.sqlite3"
+        connection = sqlite3.connect(path)
+        connection.executescript(
+            """
+            CREATE TABLE report_delivery (
+                delivery_key TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE report_delivery_chunk (
+                delivery_key TEXT NOT NULL REFERENCES report_delivery(delivery_key),
+                chunk_index INTEGER NOT NULL,
+                text TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'uncertain')),
+                message_id INTEGER,
+                next_attempt TEXT,
+                PRIMARY KEY (delivery_key, chunk_index)
+            );
+            INSERT INTO report_delivery VALUES ('old', '2025-02-03T09:00:00+00:00');
+            INSERT INTO report_delivery_chunk VALUES ('old', 0, 'saved text', 'sent', 77, NULL);
+            PRAGMA user_version = 1;
+            """
+        )
+        connection.close()
+
+        chunk = SQLiteDeliveryStore(path).chunks("old")[0]
+        self.assertEqual((chunk.text, chunk.status, chunk.message_id), ("saved text", "sent", 77))
+        self.assertIsNone(chunk.parse_mode)
+        check = sqlite3.connect(path)
+        self.assertEqual(check.execute("PRAGMA user_version").fetchone()[0], 2)
+        check.close()
 
 
 if __name__ == "__main__":

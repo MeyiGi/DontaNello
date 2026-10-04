@@ -15,9 +15,9 @@ from ..delivery import DeliveryRejected, DeliveryUncertain
 class TelegramReportSender:
     client: TelegramClient
 
-    def send_message(self, chat_id: str, text: str) -> int:
+    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int:
         try:
-            return self.client.send_message(chat_id, text)
+            return self.client.send_message(chat_id, text, parse_mode=parse_mode)
         except TelegramRejected as error:
             raise DeliveryRejected(str(error)) from None
         except TelegramUncertain as error:

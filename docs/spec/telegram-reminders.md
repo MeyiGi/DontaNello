@@ -7,7 +7,7 @@
 - Default schedule is daily at 06:00 in the configured user timezone, with a 7-day horizon. The user can change it in Telegram to every day or selected weekdays, change the local time and horizon, and turn the digest on/off.
 - A horizon of zero means show overdue and due-today tasks, with no advance-warning days. A digest with no matching tasks is not sent.
 - Send at most one digest per local calendar date. Persist the content before sending; retries reuse it. Do not blindly retry an uncertain Telegram send.
-- The personal keyboard's “Мои задачи” action immediately shows overdue tasks, tasks due today, and upcoming tasks through the configured horizon. It uses the same exclusions and ordering as the scheduled digest, but still works when scheduled notifications are disabled. If there are no matching tasks, explain that the deadline list is empty.
+- The personal keyboard's “Мои задачи” action immediately shows overdue tasks, tasks due today, and upcoming tasks through the configured horizon. It uses the same exclusions and ordering as the scheduled digest, but still works when scheduled notifications are disabled. Always show today's weekday and date, and a distinct today section even when no task is due today. Use compact clickable task titles instead of raw URLs; express upcoming deadlines as natural remaining-time phrases (for example, “остался 1 день”). If there are no matching tasks, say there are no deadlines today and in the configured horizon.
 
 ## Personal one-time reminders
 

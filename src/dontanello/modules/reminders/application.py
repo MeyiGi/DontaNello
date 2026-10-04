@@ -92,34 +92,58 @@ def render_task_digest(tasks: tuple[TaskDeadline, ...], today: date, days_ahead:
 
 def render_task_overview(tasks: tuple[TaskDeadline, ...], today: date, days_ahead: int) -> str:
     selected = select_due_tasks(tasks, today, days_ahead)
-    if not selected:
-        return f"На ближайшие {days_ahead} дней задач с дедлайном нет."
-
     overdue = [task for task in selected if task.due_date < today]
     due_today = [task for task in selected if task.due_date == today]
     upcoming = [task for task in selected if task.due_date > today]
-    lines = [f"📋 Мои задачи · {today:%d.%m.%Y}"]
+    weekday = _WEEKDAY_NAMES[today.weekday()]
+    lines = [f"📋 <b>Задачи · {weekday}, {today.day} {_month_name(today.month)}</b>"]
     if overdue:
-        lines.extend(("", f"🔴 Просрочено · {len(overdue)}"))
+        lines.extend(("", f"🔴 <b>Просрочено · {len(overdue)}</b>"))
         for task in overdue:
             late = (today - task.due_date).days
-            lines.append(f"• {task.title} — просрочена на {late} {_day_word(late)}")
-            if task.url:
-                lines.append(f"  {task.url}")
+            lines.append(f"• {_task_link(task)} — просрочена на {late} {_day_word(late)}")
+    lines.extend(("", f"🟠 <b>Сегодня · {len(due_today)}</b>"))
     if due_today:
-        lines.extend(("", f"🟠 Сегодня · {len(due_today)}"))
-        for task in due_today:
-            lines.append(f"• {task.title}")
-            if task.url:
-                lines.append(f"  {task.url}")
+        lines.extend(f"• {_task_link(task)}" for task in due_today)
+    else:
+        lines.append("Дедлайнов на сегодня нет.")
     if upcoming:
-        lines.extend(("", f"🟡 Ближайшие {days_ahead} дней · {len(upcoming)}"))
+        lines.extend(("", f"🟡 <b>Ближайшие {days_ahead} дней · {len(upcoming)}</b>"))
         for task in upcoming:
             left = (task.due_date - today).days
-            lines.append(f"• {task.title} — {task.due_date:%d.%m} · через {left} {_day_word(left)}")
-            if task.url:
-                lines.append(f"  {task.url}")
+            lines.append(f"• {task.due_date:%d.%m} · {_task_link(task)} — {_remaining_days(left)}")
+    elif days_ahead:
+        lines.extend(("", f"На следующие {days_ahead} дн. дедлайнов нет."))
     return "\n".join(lines)
+
+
+def _month_name(month: int) -> str:
+    return (
+        "января",
+        "февраля",
+        "марта",
+        "апреля",
+        "мая",
+        "июня",
+        "июля",
+        "августа",
+        "сентября",
+        "октября",
+        "ноября",
+        "декабря",
+    )[month - 1]
+
+
+def _remaining_days(count: int) -> str:
+    last_two = count % 100
+    last = count % 10
+    if 11 <= last_two <= 14:
+        return f"осталось {count} дней"
+    if last == 1:
+        return f"остался {count} день"
+    if 2 <= last <= 4:
+        return f"осталось {count} дня"
+    return f"осталось {count} дней"
 
 
 class ReminderApplication:

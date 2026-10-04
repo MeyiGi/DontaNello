@@ -107,7 +107,7 @@ class ReminderTests(unittest.TestCase):
             text,
         )
 
-    def test_task_overview_shows_open_deadlines_as_plain_clickable_links(self):
+    def test_task_overview_shows_compact_clickable_tasks_and_remaining_days(self):
         tasks = (
             TaskDeadline(
                 "late",
@@ -128,21 +128,32 @@ class ReminderTests(unittest.TestCase):
 
         text = render_task_overview(tasks, self.now.date(), 7)
 
+        self.assertIn("воскресенье, 4 октября", text)
         self.assertIn("Просрочено · 1", text)
         self.assertIn("Сегодня · 1", text)
         self.assertIn("Ближайшие 7 дней · 1", text)
-        self.assertIn("https://notion.test/late", text)
-        self.assertIn("https://notion.test/soon", text)
+        self.assertIn('<a href="https://notion.test/late">Отправить форму</a>', text)
+        self.assertIn(
+            '<a href="https://notion.test/soon">Сдать конспект</a> — осталось 3 дня', text
+        )
         self.assertNotIn("Позже", text)
         self.assertNotIn("Выполнена", text)
-        self.assertNotIn("<a ", text)
+        self.assertIn("— просрочена на 2 дня", text)
+
+    def test_task_overview_always_shows_today_even_when_no_deadlines_match(self):
+        text = render_task_overview((), self.now.date(), 7)
+
+        self.assertIn("воскресенье, 4 октября", text)
+        self.assertIn("Сегодня · 0", text)
+        self.assertIn("Дедлайнов на сегодня нет.", text)
+        self.assertIn("На следующие 7 дн. дедлайнов нет.", text)
 
     def test_task_overview_explains_when_no_tasks_have_deadlines(self):
         self.source.values = ()
 
         text = self.app.handle_message(1, "/tasks", self.now)
 
-        self.assertIn("задач с дедлайном нет", text)
+        self.assertIn("Дедлайнов на сегодня нет.", text)
         self.assertEqual(self.source.calls, 1)
 
     def test_digest_runs_once_after_configured_time_on_selected_weekday(self):

@@ -120,7 +120,9 @@ class TelegramCommands:
                                 "Кнопка «Напоминания» покажет активные; напиши: «Напомни завтра вечером позвонить».\n\n"
                                 "Кнопка «Статус» покажет состояние бота."
                             )
-                        self.delivery.deliver(key, text, now)
+                        self.delivery.deliver(
+                            key, text, now, parse_mode="HTML" if command_name == "/tasks" else None
+                        )
                     if not self.delivery.is_terminal(key):
                         # Safe rejection backoff: keep this update queued until due.
                         raise RuntimeError("Queued report awaiting delivery retry")

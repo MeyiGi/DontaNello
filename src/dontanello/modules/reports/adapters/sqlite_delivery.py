@@ -21,7 +21,7 @@ class SQLiteDeliveryStore:
         connection.execute("PRAGMA busy_timeout = 10000")
         connection.execute("PRAGMA journal_mode = WAL")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             connection.close()
             raise RuntimeError("Unsupported report journal schema version")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -38,6 +38,7 @@ class SQLiteDeliveryStore:
                 status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'uncertain')),
                 message_id INTEGER,
                 next_attempt TEXT,
+                parse_mode TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (delivery_key, chunk_index)
             );
             CREATE INDEX IF NOT EXISTS report_chunk_status
@@ -48,7 +49,15 @@ class SQLiteDeliveryStore:
             );
             """
         )
-        connection.execute("PRAGMA user_version = 1")
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(report_delivery_chunk)").fetchall()
+        }
+        if "parse_mode" not in columns:
+            connection.execute(
+                "ALTER TABLE report_delivery_chunk ADD COLUMN parse_mode TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute("PRAGMA user_version = 2")
         return connection
 
     @staticmethod
@@ -59,7 +68,13 @@ class SQLiteDeliveryStore:
     def _datetime(value: str | None) -> datetime | None:
         return datetime.fromisoformat(value) if value is not None else None
 
-    def prepare(self, key: str, chunks: Sequence[str], now: datetime) -> None:
+    def prepare(
+        self,
+        key: str,
+        chunks: Sequence[str],
+        now: datetime,
+        parse_mode: str | None = None,
+    ) -> None:
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -73,9 +88,9 @@ class SQLiteDeliveryStore:
             if exists is None:
                 connection.executemany(
                     """INSERT INTO report_delivery_chunk
-                       (delivery_key, chunk_index, text, status)
-                       VALUES (?, ?, ?, 'pending')""",
-                    [(key, index, text) for index, text in enumerate(chunks)],
+                       (delivery_key, chunk_index, text, status, parse_mode)
+                       VALUES (?, ?, ?, 'pending', ?)""",
+                    [(key, index, text, parse_mode or "") for index, text in enumerate(chunks)],
                 )
             connection.commit()
         except Exception:
@@ -88,7 +103,7 @@ class SQLiteDeliveryStore:
         connection = self._connect()
         try:
             rows = connection.execute(
-                """SELECT chunk_index, text, status, message_id, next_attempt
+                """SELECT chunk_index, text, status, message_id, next_attempt, parse_mode
                    FROM report_delivery_chunk WHERE delivery_key = ? ORDER BY chunk_index""",
                 (key,),
             ).fetchall()
@@ -99,6 +114,7 @@ class SQLiteDeliveryStore:
                     status=row["status"],
                     message_id=row["message_id"],
                     next_attempt=self._datetime(row["next_attempt"]),
+                    parse_mode=row["parse_mode"] or None,
                 )
                 for row in rows
             )

@@ -15,15 +15,17 @@ class FakeTelegram:
     def __init__(self):
         self.items = []
         self.sent = []
+        self.parse_modes = []
         self.error = None
 
     def updates(self, offset):
         return [item for item in self.items if item["update_id"] >= offset]
 
-    def send_message(self, chat_id, text):
+    def send_message(self, chat_id, text, parse_mode=None):
         if self.error:
             raise self.error
         self.sent.append((chat_id, text))
+        self.parse_modes.append(parse_mode)
         return len(self.sent)
 
 
@@ -138,6 +140,7 @@ class TelegramCommandTests(unittest.TestCase):
         self.assertEqual(reminders.calls[1][1], "/reminders")
         self.assertEqual(reminders.calls[2][1], "/tasksettings")
         self.assertEqual(self.telegram.sent[-1][1], "status")
+        self.assertEqual(self.telegram.parse_modes[2], "HTML")
 
     def test_personal_keyboard_has_no_work_actions(self):
         buttons = [button["text"] for row in PERSONAL_KEYBOARD["keyboard"] for button in row]

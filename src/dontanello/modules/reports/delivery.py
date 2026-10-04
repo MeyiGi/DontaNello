@@ -16,7 +16,7 @@ class DeliveryUncertain(RuntimeError):
 
 
 class MessageSender(Protocol):
-    def send_message(self, chat_id: str, text: str) -> int: ...
+    def send_message(self, chat_id: str, text: str, parse_mode: str | None = None) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -26,10 +26,13 @@ class DeliveryChunk:
     status: str
     message_id: int | None = None
     next_attempt: datetime | None = None
+    parse_mode: str | None = None
 
 
 class DeliveryStore(Protocol):
-    def prepare(self, key: str, chunks: Sequence[str], now: datetime) -> None: ...
+    def prepare(
+        self, key: str, chunks: Sequence[str], now: datetime, parse_mode: str | None = None
+    ) -> None: ...
     def chunks(self, key: str) -> Sequence[DeliveryChunk]: ...
     def claim_chunk(self, key: str, index: int, now: datetime) -> bool: ...
     def mark_sent(self, key: str, index: int, message_id: int, now: datetime) -> None: ...
@@ -105,10 +108,10 @@ class DeliveryService:
         chunks = self.store.chunks(self._key(key))
         return "".join(chunk.text for chunk in chunks) if chunks else None
 
-    def deliver(self, key: str, text: str, now: datetime) -> int:
+    def deliver(self, key: str, text: str, now: datetime, parse_mode: str | None = None) -> int:
         scoped_key = self._key(key)
         # Insert once: retries always use the first durable content snapshot.
-        self.store.prepare(scoped_key, split_message(text), now)
+        self.store.prepare(scoped_key, split_message(text), now, parse_mode)
         self.store.recover_stale_sending(scoped_key)
         sent = 0
         for chunk in self.store.chunks(scoped_key):
@@ -121,7 +124,12 @@ class DeliveryService:
             if not self.store.claim_chunk(scoped_key, chunk.index, now):
                 break
             try:
-                message_id = self.sender.send_message(self.chat_id, chunk.text)
+                if chunk.parse_mode is None:
+                    message_id = self.sender.send_message(self.chat_id, chunk.text)
+                else:
+                    message_id = self.sender.send_message(
+                        self.chat_id, chunk.text, chunk.parse_mode
+                    )
             except DeliveryRejected:
                 self.store.mark_pending(
                     scoped_key,
