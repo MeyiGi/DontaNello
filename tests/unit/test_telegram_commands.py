@@ -77,6 +77,7 @@ class FakePlanning:
     def __init__(self):
         self.calls = []
         self.callback_calls = []
+        self.availability_calls = []
 
     def accepts_message(self, text, now):
         return text.startswith("сегодня хочу")
@@ -91,6 +92,13 @@ class FakePlanning:
     def handle_callback(self, data, now):
         self.callback_calls.append(data)
         return PlannerResponse("created")
+
+    def show_availability(self, day, now):
+        self.availability_calls.append(day)
+        return PlannerResponse(
+            "availability",
+            ((InlineButton("Tomorrow", "a:2026-10-05"),),),
+        )
 
 
 def update(identifier, chat_id=123, kind="private", command="/week"):
@@ -160,42 +168,51 @@ class TelegramCommandTests(unittest.TestCase):
     def test_personal_keyboard_buttons_route_to_existing_actions(self):
         reminders = FakeReminders()
         inbox = FakeInbox()
+        planning = FakePlanning()
         self.commands.reminders = reminders
         self.commands.inbox = inbox
+        self.commands.planning = planning
         self.telegram.items = [
-            update(1, command="📈 Неделя"),
-            update(2, command="📆 Месяц"),
-            update(3, command="📋 Мои задачи"),
-            update(4, command="📥 Inbox"),
-            update(5, command="⏰ Напоминания"),
-            update(6, command="⚙️ Настройки дедлайнов"),
-            update(7, command="ℹ️ Статус"),
+            update(1, command="📋 Мои задачи"),
+            update(2, command="📥 Inbox"),
+            update(3, command="⏰ Напоминания"),
+            update(4, command="⚙️ Настройки дедлайнов"),
+            update(5, command="ℹ️ Статус"),
+            update(6, command="📅 Свободное время"),
         ]
 
         self.commands.run()
 
-        self.assertEqual(len(self.periods), 2)
+        self.assertEqual(len(self.periods), 0)
         self.assertEqual(reminders.calls[0][1], "/tasks")
         self.assertEqual(inbox.calls[0][1], "/inbox")
         self.assertEqual(reminders.calls[1][1], "/reminders")
         self.assertEqual(reminders.calls[2][1], "/tasksettings")
-        self.assertEqual(self.telegram.sent[-1][1], "status")
-        self.assertEqual(self.telegram.parse_modes[2], "HTML")
+        self.assertEqual(self.telegram.sent[4][1], "status")
+        self.assertEqual(self.telegram.sent[5][1], "availability")
+        self.assertEqual(planning.availability_calls, [self.now.date()])
+        self.assertEqual(self.telegram.parse_modes[0], "HTML")
 
-    def test_personal_keyboard_has_no_work_actions(self):
+    def test_personal_keyboard_hides_automatic_reports_and_shows_calendar_availability(self):
         buttons = [button["text"] for row in PERSONAL_KEYBOARD["keyboard"] for button in row]
         self.assertEqual(
             buttons,
             [
-                "📈 Неделя",
-                "📆 Месяц",
                 "📋 Мои задачи",
                 "📥 Inbox",
+                "📅 Свободное время",
                 "⏰ Напоминания",
                 "⚙️ Настройки дедлайнов",
                 "ℹ️ Статус",
             ],
         )
+
+    def test_start_replaces_stale_telegram_keyboard(self):
+        self.telegram.items = [update(1, command="/start")]
+
+        self.commands.run()
+
+        self.assertEqual(self.telegram.markups[0], PERSONAL_KEYBOARD)
 
     def test_cursor_failure_after_delivery_does_not_send_twice(self):
         self.telegram.items = [update(1)]
@@ -284,7 +301,9 @@ class TelegramCommandTests(unittest.TestCase):
         self.telegram.items = [update(1, command="/help")]
         self.commands.run()
         menu = self.telegram.sent[0][1]
-        self.assertIn("📈 ПРОГРЕСС", menu)
+        self.assertIn("📅 СВОБОДНОЕ ВРЕМЯ", menu)
+        self.assertNotIn("Неделя", menu)
+        self.assertNotIn("Месяц", menu)
         self.assertIn("📥 INBOX", menu)
         self.assertIn("Запиши в инбокс", menu)
         self.assertIn("✅ МОИ ЗАДАЧИ", menu)

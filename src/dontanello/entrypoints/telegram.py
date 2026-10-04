@@ -19,10 +19,9 @@ from dontanello.platform.telegram_cursor import TelegramCursor
 
 PERSONAL_KEYBOARD = {
     "keyboard": [
-        [{"text": "📈 Неделя"}, {"text": "📆 Месяц"}],
         [{"text": "📋 Мои задачи"}, {"text": "📥 Inbox"}],
-        [{"text": "⏰ Напоминания"}, {"text": "⚙️ Настройки дедлайнов"}],
-        [{"text": "ℹ️ Статус"}],
+        [{"text": "📅 Свободное время"}, {"text": "⏰ Напоминания"}],
+        [{"text": "⚙️ Настройки дедлайнов"}, {"text": "ℹ️ Статус"}],
     ],
     "resize_keyboard": True,
     "is_persistent": True,
@@ -30,10 +29,9 @@ PERSONAL_KEYBOARD = {
 }
 
 _KEYBOARD_COMMANDS = {
-    "📈 Неделя": "/week",
-    "📆 Месяц": "/month",
     "📋 Мои задачи": "/tasks",
     "📥 Inbox": "/inbox",
+    "📅 Свободное время": "/availability",
     "⏰ Напоминания": "/reminders",
     "⚙️ Настройки дедлайнов": "/tasksettings",
     "ℹ️ Статус": "/status",
@@ -89,8 +87,10 @@ class TelegramCommands:
                 planning_request = bool(
                     self.planning and self.planning.accepts_message(routed_text, now)
                 )
+                availability_request = command_name == "/availability"
                 if (
                     command_name in ("/week", "/month", "/start", "/help", "/status")
+                    or availability_request
                     or reminder_request
                     or inbox_request
                     or planning_request
@@ -115,20 +115,34 @@ class TelegramCommands:
                             )
                         elif command_name == "/status":
                             text = self.status()
+                        elif availability_request:
+                            availability_response = (
+                                self.planning.show_availability(now.date(), now)
+                                if self.planning
+                                else PlannerResponse("Просмотр календаря пока не настроен.")
+                            )
+                            text = availability_response.text
+                            reply_markup = _telegram_markup(availability_response)
                         elif reminder_request and self.reminders:
                             text = self.reminders.handle_message(update_id, routed_text, now) or ""
                         elif planning_request and self.planning:
-                            response = self.planning.handle_message(update_id, routed_text, now)
-                            text = response.text if response else "Не получилось разобрать запрос."
-                            reply_markup = _telegram_markup(response)
+                            planner_response = self.planning.handle_message(
+                                update_id, routed_text, now
+                            )
+                            text = (
+                                planner_response.text
+                                if planner_response
+                                else "Не получилось разобрать запрос."
+                            )
+                            reply_markup = _telegram_markup(planner_response)
                         elif inbox_request and self.inbox:
                             text = self.inbox.handle_message(update_id, routed_text, now) or ""
                         else:
                             text = (
                                 "DONTANELLO\n\n"
                                 "Можно нажимать кнопки внизу чата — команды вводить не обязательно.\n"
-                                "📈 ПРОГРЕСС\n"
-                                "Кнопки «Неделя» и «Месяц» — обзоры прогресса.\n\n"
+                                "📅 СВОБОДНОЕ ВРЕМЯ\n"
+                                "Кнопка покажет промежутки, свободные по Google Calendar; дни можно переключать.\n\n"
                                 "📥 INBOX\n"
                                 "Нажми «Inbox» или напиши, что сохранить: «Запиши в инбокс: узнать про аффинный шифр».\n\n"
                                 "✅ МОИ ЗАДАЧИ\n"
@@ -138,6 +152,10 @@ class TelegramCommands:
                                 "Кнопка «Напоминания» покажет активные; напиши: «Напомни завтра вечером позвонить».\n\n"
                                 "Кнопка «Статус» покажет состояние бота."
                             )
+                        if reply_markup is None:
+                            # Sending the latest persistent keyboard also replaces stale buttons
+                            # left by older bot versions in the Telegram client.
+                            reply_markup = PERSONAL_KEYBOARD
                         self.delivery.deliver(
                             key,
                             text,

@@ -132,6 +132,12 @@ class CalendarPlanningApplication:
 
     def handle_callback(self, data: str, now: datetime) -> PlannerResponse:
         parts = data.split(":")
+        if len(parts) == 2 and parts[0] == "a":
+            try:
+                day = date.fromisoformat(parts[1])
+            except ValueError:
+                return PlannerResponse("Не получилось открыть этот день.")
+            return self.show_availability(day, now)
         if len(parts) < 3 or parts[0] != "p":
             return PlannerResponse("Эта кнопка уже недействительна.")
         proposal = self.repository.get_proposal(parts[1])
@@ -168,6 +174,34 @@ class CalendarPlanningApplication:
         if action == "undo":
             return self._undo(proposal)
         return PlannerResponse("Не понял действие этой кнопки.")
+
+    def show_availability(self, day: date, now: datetime) -> PlannerResponse:
+        """Show calendar free periods for a day without creating an event."""
+        try:
+            events = self.calendar.events(*self._calendar_range(day))
+        except CalendarNotConnected:
+            return PlannerResponse("Сначала подключи Google Calendar.")
+        except CalendarUnavailable:
+            return PlannerResponse("Не удалось прочитать Google Calendar. Попробуй позже.")
+
+        free_periods = self._free_ranges(day, now, events)
+        lines = [f"📅 Свободное время · {_date_label(day, now.date())}"]
+        if free_periods:
+            lines.extend(f"• {format_slot(period)}" for period in free_periods)
+        else:
+            lines.append("Свободных промежутков в планировочном окне нет.")
+
+        previous_day = day - timedelta(days=1)
+        next_day = day + timedelta(days=1)
+        rows: list[tuple[InlineButton, ...]] = [
+            (
+                InlineButton(f"‹ {previous_day:%d.%m}", f"a:{previous_day.isoformat()}"),
+                InlineButton(f"{next_day:%d.%m} ›", f"a:{next_day.isoformat()}"),
+            )
+        ]
+        if day != now.date():
+            rows.append((InlineButton("Сегодня", f"a:{now.date().isoformat()}"),))
+        return PlannerResponse("\n".join(lines), tuple(rows))
 
     def _add(self, proposal: PlanProposal, now: datetime) -> PlannerResponse:
         if proposal.status == "created":
@@ -330,9 +364,32 @@ class CalendarPlanningApplication:
         exclude: Sequence[TimeSlot] = (),
         not_before: datetime | None = None,
     ) -> tuple[TimeSlot, ...]:
+        gaps = self._free_ranges(day, now, events)
+        duration = timedelta(minutes=duration_minutes)
+        step = timedelta(minutes=30)
+        excluded = {(slot.start, slot.end) for slot in exclude}
+        candidates = []
+        for gap in gaps:
+            gap_start, gap_end = gap.start, gap.end
+            candidate = _round_up(gap_start, 15)
+            while candidate + duration <= gap_end:
+                slot = TimeSlot(candidate, candidate + duration)
+                if (slot.start, slot.end) not in excluded and (
+                    not_before is None or slot.start >= not_before
+                ):
+                    candidates.append(slot)
+                candidate += step
+        # Earlier free slots are preferred; the user can ask for later alternatives.
+        return tuple(candidates[:3])
+
+    def _free_ranges(
+        self, day: date, now: datetime, events: Sequence[CalendarEvent]
+    ) -> tuple[TimeSlot, ...]:
         window_start, window_end = self._day_bounds(day)
-        if day == now.date():
+        if day == now.astimezone(self.timezone).date():
             window_start = max(window_start, _round_up(now.astimezone(self.timezone), 15))
+        if window_start >= window_end:
+            return ()
         blocked = []
         for event in events:
             start = max(window_start, event.start.astimezone(self.timezone) - self.buffer)
@@ -346,29 +403,15 @@ class CalendarPlanningApplication:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
-        gaps = []
+        free = []
         cursor = window_start
         for start, end in merged:
             if cursor < start:
-                gaps.append((cursor, start))
+                free.append(TimeSlot(cursor, start))
             cursor = max(cursor, end)
         if cursor < window_end:
-            gaps.append((cursor, window_end))
-        duration = timedelta(minutes=duration_minutes)
-        step = timedelta(minutes=30)
-        excluded = {(slot.start, slot.end) for slot in exclude}
-        candidates = []
-        for gap_start, gap_end in gaps:
-            candidate = _round_up(gap_start, 15)
-            while candidate + duration <= gap_end:
-                slot = TimeSlot(candidate, candidate + duration)
-                if (slot.start, slot.end) not in excluded and (
-                    not_before is None or slot.start >= not_before
-                ):
-                    candidates.append(slot)
-                candidate += step
-        # Earlier free slots are preferred; the user can ask for later alternatives.
-        return tuple(candidates[:3])
+            free.append(TimeSlot(cursor, window_end))
+        return tuple(free)
 
     def _conflicts(
         self,

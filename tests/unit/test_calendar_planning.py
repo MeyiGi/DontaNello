@@ -108,6 +108,32 @@ class CalendarPlanningTests(unittest.TestCase):
         self.assertLessEqual(len(response.button_rows), 4)
         self.assertLessEqual(response.text.count("• "), 3)
 
+    def test_availability_shows_remaining_free_periods_and_day_navigation(self):
+        from datetime import date
+
+        self.calendar.items.append(
+            CalendarEvent(
+                "meeting",
+                "Встреча",
+                datetime(2026, 10, 4, 19, 0, tzinfo=self.zone),
+                datetime(2026, 10, 4, 20, 0, tzinfo=self.zone),
+            )
+        )
+
+        response = self.application.show_availability(date(2026, 10, 4), self.now)
+
+        self.assertIn("18:00–18:45", response.text)
+        self.assertIn("20:15–22:00", response.text)
+        self.assertEqual(response.button_rows[0][0].label, "‹ 03.10")
+        self.assertEqual(response.button_rows[0][1].label, "05.10 ›")
+        self.assertEqual(self.calendar.created, {})
+
+    def test_availability_callback_reads_the_selected_day(self):
+        response = self.application.handle_callback("a:2026-10-05", self.now)
+
+        self.assertIn("завтра", response.text)
+        self.assertIn("08:00–22:00", response.text)
+
     def test_request_retry_does_not_create_a_second_proposal(self):
         first = self.application.handle_message(5, "завтра 1 час читать", self.now)
         second = self.application.handle_message(5, "завтра 1 час читать", self.now)
