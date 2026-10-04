@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from dontanello.integrations.google_calendar.client import GoogleCalendarClient
 from dontanello.modules.calendar_planning.adapters.google_calendar import GoogleCalendarAdapter
 from dontanello.modules.calendar_planning.adapters.sqlite import SQLitePlanningRepository
-from dontanello.modules.calendar_planning.models import PlanProposal, TimeSlot
+from dontanello.modules.calendar_planning.models import PendingPlanIntent, PlanProposal, TimeSlot
 
 
 class CalendarPlanningAdapterTests(unittest.TestCase):
@@ -36,6 +36,43 @@ class CalendarPlanningAdapterTests(unittest.TestCase):
             self.assertEqual(restarted.proposal_for_update(55), proposal)
             self.assertEqual(restarted.get_proposal("proposal"), proposal)
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
+    def test_pending_duration_intent_survives_restart_and_clears_with_proposal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state" / "planning.sqlite3"
+            zone = ZoneInfo("Asia/Bishkek")
+            intent = PendingPlanIntent(
+                70,
+                "Хочу завтра позаниматься информационной безопасностью",
+                "Информационной безопасностью",
+                date(2026, 10, 5),
+                datetime(2026, 10, 4, 18, tzinfo=zone),
+            )
+            repository = SQLitePlanningRepository(path)
+            repository.save_pending_intent(intent)
+            restarted = SQLitePlanningRepository(path)
+            self.assertEqual(restarted.pending_intent(), intent)
+
+            proposal = PlanProposal(
+                "proposal-after-duration",
+                71,
+                "Хочу завтра позаниматься информационной безопасностью — 90 минут",
+                intent.title,
+                intent.day,
+                90,
+                (
+                    TimeSlot(
+                        datetime(2026, 10, 5, 10, tzinfo=zone),
+                        datetime(2026, 10, 5, 11, 30, tzinfo=zone),
+                    ),
+                ),
+                0,
+                "pending",
+            )
+            restarted.save_proposal_and_clear_pending(proposal)
+            final = SQLitePlanningRepository(path)
+            self.assertEqual(final.proposal_for_update(71), proposal)
+            self.assertIsNone(final.pending_intent())
 
     def test_google_adapter_normalizes_events_and_ignores_free_or_cancelled_events(self):
         class Client:

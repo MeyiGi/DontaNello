@@ -35,6 +35,7 @@ class MemoryRepository:
     def __init__(self):
         self.items = {}
         self.updates = {}
+        self.pending = None
 
     def proposal_for_update(self, update_id):
         proposal_id = self.updates.get(update_id)
@@ -46,6 +47,19 @@ class MemoryRepository:
     def save_proposal(self, proposal):
         self.items[proposal.id] = proposal
         self.updates[proposal.update_id] = proposal.id
+
+    def pending_intent(self):
+        return self.pending
+
+    def save_pending_intent(self, intent):
+        self.pending = intent
+
+    def clear_pending_intent(self):
+        self.pending = None
+
+    def save_proposal_and_clear_pending(self, proposal):
+        self.save_proposal(proposal)
+        self.clear_pending_intent()
 
 
 class CalendarPlanningTests(unittest.TestCase):
@@ -70,6 +84,31 @@ class CalendarPlanningTests(unittest.TestCase):
         self.assertIn("18:00–19:30", response.text)
         self.assertEqual(self.calendar.created, {})
         self.assertEqual(len(response.button_rows), 2)
+
+    def test_request_without_duration_asks_and_remembers_context_until_answer(self):
+        text = "Хочу завтра позаниматься информационной безопасностью"
+
+        question = self.application.handle_message(70, text, self.now)
+
+        self.assertIn("На сколько времени", question.text)
+        self.assertEqual(self.calendar.reads, 0)
+        self.assertEqual(self.calendar.created, {})
+        self.assertTrue(self.application.accepts_message("1,5 часа", self.now))
+
+        proposal = self.application.handle_message(71, "1,5 часа", self.now)
+
+        self.assertIn("Информационной безопасностью — 1 ч 30 мин", proposal.text)
+        self.assertIn("завтра, 05.10", proposal.text)
+        self.assertEqual(len(self.repository.items), 1)
+        self.assertIsNone(self.repository.pending_intent())
+
+    def test_invalid_duration_answer_keeps_the_pending_request(self):
+        self.application.handle_message(
+            72, "Хочу завтра позаниматься информационной безопасностью", self.now
+        )
+
+        self.assertFalse(self.application.accepts_message("скоро", self.now))
+        self.assertIsNotNone(self.repository.pending_intent())
 
     def test_confirmation_rereads_calendar_then_creates_and_undoes_only_own_event(self):
         response = self.application.handle_message(2, "сегодня 1 час почитать", self.now)

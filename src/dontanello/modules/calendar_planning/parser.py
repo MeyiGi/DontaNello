@@ -13,6 +13,11 @@ _DURATION = re.compile(
     r"(?<!\w)(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч\.?|h|мин(?:ут(?:ы|у)?)?)(?!\w)",
     re.IGNORECASE,
 )
+_PLAN_INTENT = re.compile(
+    r"\b(?:хочу|занима\w*|позанима\w*|учиться|поучиться|поработать|"
+    r"изучать|изучить|подготовиться|выдели|найди|запланируй)\b",
+    re.IGNORECASE,
+)
 _DATE_WORDS = {
     "сегодня": 0,
     "завтра": 1,
@@ -77,6 +82,44 @@ def parse_plan_request(text: str, now: datetime) -> PlanRequest | None:
     if not title:
         return None
     return PlanRequest(day, title[:120], minutes, fixed_slot)
+
+
+def parse_plan_intent(text: str, now: datetime) -> tuple[date, str] | None:
+    """Extract a dated activity when the user has not said how long it takes."""
+    clean = text.strip()
+    if (
+        not clean
+        or clean.startswith("/")
+        or not _PLAN_INTENT.search(clean)
+        or _DURATION.search(clean)
+        or _RANGE.search(clean)
+    ):
+        return None
+    day = _parse_day(clean, now.date())
+    title = _parse_title(clean, None, None)
+    return (day, title[:120]) if day is not None and title else None
+
+
+def parse_duration_answer(text: str) -> int | None:
+    """Parse a short duration reply to a pending planning question."""
+    clean = re.sub(r"^(?:на|примерно|около)\s+", "", text.strip(), flags=re.IGNORECASE)
+    lowered = clean.casefold()
+    if lowered in {"полчаса", "пол часа"}:
+        return 30
+    if lowered in {"полтора часа", "полтора часика"}:
+        return 90
+    if lowered in {"час", "часа", "один час", "один часик"}:
+        return 60
+    match = _DURATION.fullmatch(clean)
+    if not match:
+        return None
+    try:
+        amount = float(match[1].replace(",", "."))
+    except ValueError:
+        return None
+    unit = match[0].casefold()
+    minutes = int(amount if "мин" in unit else amount * 60)
+    return minutes if 15 <= minutes <= 480 else None
 
 
 def _parse_day(text: str, today: date) -> date | None:

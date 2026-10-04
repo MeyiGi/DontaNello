@@ -13,6 +13,15 @@ class PlanRequest:
 
 
 @dataclass(frozen=True)
+class PendingPlanIntent:
+    update_id: int
+    request_text: str
+    title: str
+    day: date
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class TimeSlot:
     start: datetime
     end: datetime

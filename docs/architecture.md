@@ -2,6 +2,8 @@
 
 Статус: внедрены completion, reports, reminders, calendar planning и operations. Telegram принимает команды из настроенного личного чата; отчёты, планирование дедлайнов, личных напоминаний и одноразовых календарных блоков, локальные копии и уведомления реализованы. Политики доставки и восстановления описаны в [ADR 0002](decisions/0002-reports-and-operations.md), структурированные обзоры прогресса — в [ADR 0004](decisions/0004-progress-reviews.md), анализ через Groq — в [ADR 0005](decisions/0005-groq-progress-analysis.md), компактация истории — в [ADR 0006](decisions/0006-report-event-compaction.md), напоминания — в [ADR 0007](decisions/0007-telegram-reminders.md), календарное планирование — в [ADR 0008](decisions/0008-google-calendar-planning.md).
 
+Подтверждённое создание личных задач из Telegram в Tasks также внедрено; отдельные proposal/outcome хранятся в `task_capture.sqlite3` и входят в проверяемые локальные резервные копии.
+
 ## Цель
 
 Добавлять независимые автоматизации, интеграции и способы управления с локальными изменениями. Уменьшать связанность и стоимость сопровождения. Будущий переход к микросервисам допустим, но простоту эксплуатации сохраняем сейчас. Архитектура не гарантирует постоянную стоимость любой новой функции: сложные связи требуют явного проектирования.
@@ -22,6 +24,14 @@ src/dontanello/
     telegram.py                # команды, проверка пользователя, маршрутизация
     worker.py                  # расписание, запуск сценариев, изоляция ошибок
   modules/
+    task_capture/
+      models.py                # task drafts, confirmation proposals and Telegram actions
+      application.py           # explicit task request, confirmation and idempotent creation
+      parser.py                # deterministic Russian task title and due-date parsing
+      ports.py                 # Notion writer and durable proposal journal
+      adapters/
+        notion.py              # task database page creation
+        sqlite.py              # pending confirmations and uncertain write outcomes
     inbox/
       application.py           # Telegram idea capture and replay behavior
       ports.py                 # capture journal and Inbox writer contracts

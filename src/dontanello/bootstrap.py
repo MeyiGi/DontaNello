@@ -48,6 +48,12 @@ from dontanello.modules.reports.adapters.notion import NotionReportConfig, Notio
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.modules.reports.adapters.sqlite_progress import SQLiteProgressArchive
 from dontanello.modules.reports.adapters.telegram import TelegramReportSender
+from dontanello.modules.task_capture import TaskCaptureApplication
+from dontanello.modules.task_capture.adapters.notion import (
+    NotionTaskWriter,
+    NotionTaskWriterConfig,
+)
+from dontanello.modules.task_capture.adapters.sqlite import SQLiteTaskCaptureRepository
 from dontanello.platform.clock import LocalClock
 from dontanello.platform.settings import Settings
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -65,6 +71,7 @@ class Runtime:
     reminders_app: ReminderApplication | None = None
     inbox_app: InboxCaptureApplication | None = None
     planning_app: CalendarPlanningApplication | None = None
+    task_capture_app: TaskCaptureApplication | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -221,6 +228,7 @@ class Runtime:
             reminders=self.reminders_app,
             inbox=self.inbox_app,
             planning=self.planning_app,
+            task_capture=self.task_capture_app,
         )
         menu = [
             {"command": "week", "description": "Обзор за прошлую неделю"},
@@ -350,6 +358,22 @@ def build_runtime(settings: Settings) -> Runtime:
             NotionInboxWriter(client, NotionInboxConfig(**inbox_config)),
         )
         runtime.inbox_app.recover_inflight()
+    task_config = reminder_config.get("notion_tasks")
+    if task_config:
+        runtime.task_capture_app = TaskCaptureApplication(
+            SQLiteTaskCaptureRepository(settings.root / "state" / "task_capture.sqlite3"),
+            NotionTaskWriter(
+                client,
+                NotionTaskWriterConfig(
+                    data_source_id=task_config["source_id"],
+                    title_property=task_config.get("title_property", "Name"),
+                    due_property=task_config.get("due_property", "Due"),
+                    status_property=task_config.get("status_property", "List"),
+                    default_status=task_config.get("create_default_status", "Backlog 🐛"),
+                ),
+            ),
+        )
+        runtime.task_capture_app.recover_inflight()
     if settings.groq_api_key:
         ai = settings.config.get("reports", {}).get("ai", {})
         engine = GroqClient(

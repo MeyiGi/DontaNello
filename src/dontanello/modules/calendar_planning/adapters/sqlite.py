@@ -9,7 +9,7 @@ from contextlib import closing
 from datetime import date, datetime
 from pathlib import Path
 
-from ..models import PlanProposal, TimeSlot
+from ..models import PendingPlanIntent, PlanProposal, TimeSlot
 
 
 class SQLitePlanningRepository:
@@ -33,6 +33,16 @@ class SQLitePlanningRepository:
                     event_id TEXT NOT NULL DEFAULT ''
                 )"""
             )
+            database.execute(
+                """CREATE TABLE IF NOT EXISTS calendar_planning_pending_intent (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                    update_id INTEGER NOT NULL,
+                    request_text TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    day TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )"""
+            )
         os.chmod(path, 0o600)
 
     def proposal_for_update(self, update_id: int) -> PlanProposal | None:
@@ -50,6 +60,53 @@ class SQLitePlanningRepository:
         return self._model(row)
 
     def save_proposal(self, proposal: PlanProposal) -> None:
+        with closing(self._connect()) as database, database:
+            self._write_proposal(database, proposal)
+
+    def pending_intent(self) -> PendingPlanIntent | None:
+        with closing(self._connect()) as database:
+            row = database.execute(
+                "SELECT * FROM calendar_planning_pending_intent WHERE singleton = 1"
+            ).fetchone()
+        if row is None:
+            return None
+        return PendingPlanIntent(
+            row["update_id"],
+            row["request_text"],
+            row["title"],
+            date.fromisoformat(row["day"]),
+            datetime.fromisoformat(row["created_at"]),
+        )
+
+    def save_pending_intent(self, intent: PendingPlanIntent) -> None:
+        with closing(self._connect()) as database, database:
+            database.execute(
+                """INSERT INTO calendar_planning_pending_intent
+                   (singleton, update_id, request_text, title, day, created_at)
+                   VALUES (1, ?, ?, ?, ?, ?)
+                   ON CONFLICT(singleton) DO UPDATE SET
+                    update_id=excluded.update_id, request_text=excluded.request_text,
+                    title=excluded.title, day=excluded.day, created_at=excluded.created_at""",
+                (
+                    intent.update_id,
+                    intent.request_text,
+                    intent.title,
+                    intent.day.isoformat(),
+                    intent.created_at.isoformat(),
+                ),
+            )
+
+    def clear_pending_intent(self) -> None:
+        with closing(self._connect()) as database, database:
+            database.execute("DELETE FROM calendar_planning_pending_intent WHERE singleton = 1")
+
+    def save_proposal_and_clear_pending(self, proposal: PlanProposal) -> None:
+        with closing(self._connect()) as database, database:
+            self._write_proposal(database, proposal)
+            database.execute("DELETE FROM calendar_planning_pending_intent WHERE singleton = 1")
+
+    @staticmethod
+    def _write_proposal(database: sqlite3.Connection, proposal: PlanProposal) -> None:
         options = json.dumps(
             [
                 {"start": slot.start.isoformat(), "end": slot.end.isoformat()}
@@ -57,9 +114,8 @@ class SQLitePlanningRepository:
             ],
             separators=(",", ":"),
         )
-        with closing(self._connect()) as database, database:
-            database.execute(
-                """INSERT INTO calendar_planning_proposal
+        database.execute(
+            """INSERT INTO calendar_planning_proposal
                    (proposal_id, update_id, request_text, title, day, duration_minutes,
                     options, selected_index, status, event_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -68,19 +124,19 @@ class SQLitePlanningRepository:
                     duration_minutes=excluded.duration_minutes, options=excluded.options,
                     selected_index=excluded.selected_index, status=excluded.status,
                     event_id=excluded.event_id""",
-                (
-                    proposal.id,
-                    proposal.update_id,
-                    proposal.request_text,
-                    proposal.title,
-                    proposal.day.isoformat(),
-                    proposal.duration_minutes,
-                    options,
-                    proposal.selected_index,
-                    proposal.status,
-                    proposal.event_id,
-                ),
-            )
+            (
+                proposal.id,
+                proposal.update_id,
+                proposal.request_text,
+                proposal.title,
+                proposal.day.isoformat(),
+                proposal.duration_minutes,
+                options,
+                proposal.selected_index,
+                proposal.status,
+                proposal.event_id,
+            ),
+        )
 
     def _connect(self) -> sqlite3.Connection:
         database = sqlite3.connect(self.path, timeout=10)

@@ -12,14 +12,19 @@ from .models import (
     CalendarNotConnected,
     CalendarUnavailable,
     InlineButton,
+    PendingPlanIntent,
     PlannerResponse,
     PlanProposal,
+    PlanRequest,
     TimeSlot,
     format_slot,
     plan_event_id,
 )
-from .parser import parse_plan_request
+from .parser import parse_duration_answer, parse_plan_intent, parse_plan_request
 from .ports import CalendarGateway, PlanningRepository, PlanningRequestInterpreter
+
+PENDING_INTENT_TTL = timedelta(minutes=30)
+_CANCEL_WORDS = {"отмена", "cancel"}
 
 
 class CalendarPlanningApplication:
@@ -46,15 +51,55 @@ class CalendarPlanningApplication:
         self.interpreter = interpreter
 
     def accepts_message(self, text: str, now: datetime) -> bool:
-        return parse_plan_request(text, now) is not None or (
-            self.interpreter is not None and _looks_like_planning_request(text)
+        if parse_plan_request(text, now) is not None:
+            return True
+        if _looks_like_planning_request(text) and (
+            parse_plan_intent(text, now) is not None or self.interpreter is not None
+        ):
+            return True
+        pending = self._pending_intent(now)
+        return bool(
+            pending
+            and (
+                parse_duration_answer(text) is not None or text.strip().casefold() in _CANCEL_WORDS
+            )
         )
 
     def handle_message(self, update_id: int, text: str, now: datetime) -> PlannerResponse | None:
         existing = self.repository.proposal_for_update(update_id)
         if existing is not None:
             return self._proposal_response(existing, now)
-        request = parse_plan_request(text, now)
+        pending = self._pending_intent(now)
+        if pending and text.strip().casefold() in _CANCEL_WORDS:
+            self.repository.clear_pending_intent()
+            return PlannerResponse("Хорошо, планирование отменено. Календарь не менял.")
+
+        duration = parse_duration_answer(text) if pending else None
+        completing_pending = pending is not None and duration is not None
+        request = (
+            PlanRequest(pending.day, pending.title, duration)
+            if completing_pending and pending is not None and duration is not None
+            else parse_plan_request(text, now)
+        )
+        request_text = (
+            f"{pending.request_text} — {text}" if completing_pending and pending else text
+        )
+        if not completing_pending and request is not None and pending is not None:
+            self.repository.clear_pending_intent()
+
+        if request is None:
+            intent = parse_plan_intent(text, now)
+            if intent is not None:
+                day, title = intent
+                self.repository.save_pending_intent(
+                    PendingPlanIntent(update_id, text, title, day, now)
+                )
+                return PlannerResponse(
+                    f"На сколько времени запланировать «{title}» на {_date_label(day, now.date())}? "
+                    "Напиши, например: «1 час», «1,5 часа» или «90 минут». "
+                    "Календарь пока не менял."
+                )
+
         if request is None and self.interpreter is not None and _looks_like_planning_request(text):
             try:
                 request = self.interpreter.interpret(text, now)
@@ -65,7 +110,7 @@ class CalendarPlanningApplication:
                 )
         if request is None:
             return None
-        proposal_id = hashlib.sha256(f"{update_id}:{text}".encode()).hexdigest()[:32]
+        proposal_id = hashlib.sha256(f"{update_id}:{request_text}".encode()).hexdigest()[:32]
         try:
             events = self.calendar.events(*self._calendar_range(request.day))
         except CalendarNotConnected:
@@ -106,12 +151,14 @@ class CalendarPlanningApplication:
                     None,
                     "pending",
                 )
-                self.repository.save_proposal(proposal)
+                self._save_new_proposal(proposal, completing_pending)
                 return self._conflict_response(proposal, request.fixed_slot, conflicts)
             options = (request.fixed_slot,)
         else:
             options = self._suggestions(request.day, request.duration_minutes, now, events)
             if not options:
+                if completing_pending:
+                    self.repository.clear_pending_intent()
                 return PlannerResponse(
                     f"Не нашёл свободный слот на {request.duration_minutes} минут в выбранном окне. "
                     "Google Calendar не менял."
@@ -119,7 +166,7 @@ class CalendarPlanningApplication:
         proposal = PlanProposal(
             proposal_id,
             update_id,
-            text,
+            request_text,
             request.title,
             request.day,
             request.duration_minutes,
@@ -127,7 +174,7 @@ class CalendarPlanningApplication:
             0,
             "pending",
         )
-        self.repository.save_proposal(proposal)
+        self._save_new_proposal(proposal, completing_pending)
         return self._proposal_response(proposal, now)
 
     def handle_callback(self, data: str, now: datetime) -> PlannerResponse:
@@ -446,6 +493,21 @@ class CalendarPlanningApplication:
         updated = replace(proposal, **changes)
         self.repository.save_proposal(updated)
         return updated
+
+    def _pending_intent(self, now: datetime) -> PendingPlanIntent | None:
+        pending = self.repository.pending_intent()
+        if pending is None:
+            return None
+        if now - pending.created_at > PENDING_INTENT_TTL:
+            self.repository.clear_pending_intent()
+            return None
+        return pending
+
+    def _save_new_proposal(self, proposal: PlanProposal, completing_pending: bool) -> None:
+        if completing_pending:
+            self.repository.save_proposal_and_clear_pending(proposal)
+        else:
+            self.repository.save_proposal(proposal)
 
 
 def _round_up(value: datetime, minutes: int) -> datetime:

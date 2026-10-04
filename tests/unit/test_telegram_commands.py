@@ -101,6 +101,27 @@ class FakePlanning:
         )
 
 
+class FakeTaskCapture:
+    def __init__(self):
+        self.calls = []
+        self.callbacks = []
+
+    def accepts_message(self, text, now, update_id):
+        return text.startswith("Добавь задачу")
+
+    def handle_message(self, update_id, text, now):
+        self.calls.append((update_id, text))
+        from dontanello.modules.task_capture import TaskButton, TaskResponse
+
+        return TaskResponse("confirm", ((TaskButton("Создать", "t:id:add"),),))
+
+    def handle_callback(self, data):
+        self.callbacks.append(data)
+        from dontanello.modules.task_capture import TaskResponse
+
+        return TaskResponse("task created")
+
+
 def update(identifier, chat_id=123, kind="private", command="/week"):
     return {
         "update_id": identifier,
@@ -112,14 +133,16 @@ def update(identifier, chat_id=123, kind="private", command="/week"):
     }
 
 
-def callback_update(identifier, callback_id="cb-1", chat_id=123, user_id=123, kind="private"):
+def callback_update(
+    identifier, callback_id="cb-1", chat_id=123, user_id=123, kind="private", data="p:proposal:add"
+):
     return {
         "update_id": identifier,
         "callback_query": {
             "id": callback_id,
             "from": {"id": user_id, "is_bot": False},
             "chat_instance": "instance",
-            "data": "p:proposal:add",
+            "data": data,
             "message": {"chat": {"id": chat_id, "type": kind}},
         },
     }
@@ -213,6 +236,23 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
 
         self.assertEqual(self.telegram.markups[0], PERSONAL_KEYBOARD)
+
+    def test_task_capture_uses_confirmation_and_callback_only_for_owner(self):
+        capture = FakeTaskCapture()
+        self.commands.task_capture = capture
+        self.telegram.items = [
+            update(1, command="Добавь задачу прочитать презентацию"),
+            callback_update(2, callback_id="task-ok", data="t:id:add"),
+            callback_update(3, callback_id="other", chat_id=999, user_id=999),
+        ]
+
+        self.commands.run()
+
+        self.assertEqual(capture.calls[0][1], "Добавь задачу прочитать презентацию")
+        self.assertEqual(
+            self.telegram.markups[0]["inline_keyboard"][0][0]["callback_data"], "t:id:add"
+        )
+        self.assertEqual(capture.callbacks, ["t:id:add"])
 
     def test_cursor_failure_after_delivery_does_not_send_twice(self):
         self.telegram.items = [update(1)]

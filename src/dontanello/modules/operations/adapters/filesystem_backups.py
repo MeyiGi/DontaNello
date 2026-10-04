@@ -24,6 +24,7 @@ class FileBackupStore:
         "state/reminders.sqlite3",
         "state/inbox.sqlite3",
         "state/calendar_planning.sqlite3",
+        "state/task_capture.sqlite3",
         "config/settings.json",
     )
     REQUIRED = "state/checkboxes.json"
@@ -209,6 +210,7 @@ class FileBackupStore:
         reminders_path = "state/reminders.sqlite3"
         inbox_path = "state/inbox.sqlite3"
         planning_path = "state/calendar_planning.sqlite3"
+        task_capture_path = "state/task_capture.sqlite3"
         progress_path = "state/progress.sqlite3"
         restore_delivery = delivery_path in files and (
             restore_delivery_history or not (self.root / delivery_path).exists()
@@ -222,6 +224,9 @@ class FileBackupStore:
         restore_planning = planning_path in files and (
             restore_delivery_history or not (self.root / planning_path).exists()
         )
+        restore_task_capture = task_capture_path in files and (
+            restore_delivery_history or not (self.root / task_capture_path).exists()
+        )
         restore_files = [
             relative
             for relative in selected
@@ -229,13 +234,22 @@ class FileBackupStore:
             and (relative != reminders_path or restore_reminders)
             and (relative != inbox_path or restore_inbox)
             and (relative != planning_path or restore_planning)
+            and (relative != task_capture_path or restore_task_capture)
         ]
 
         targets = {relative: self._check_restore_target(relative) for relative in selected}
         databases_to_restore = [
             relative
             for relative in restore_files
-            if relative in (delivery_path, progress_path, reminders_path, inbox_path, planning_path)
+            if relative
+            in (
+                delivery_path,
+                progress_path,
+                reminders_path,
+                inbox_path,
+                planning_path,
+                task_capture_path,
+            )
         ]
         for database_path in databases_to_restore:
             for suffix in ("-wal", "-shm"):
@@ -273,6 +287,7 @@ class FileBackupStore:
                     reminders_path,
                     inbox_path,
                     planning_path,
+                    task_capture_path,
                 ):
                     for suffix in ("-wal", "-shm"):
                         sidecar = self._check_restore_target(relative + suffix)

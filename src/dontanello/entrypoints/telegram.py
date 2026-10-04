@@ -15,6 +15,7 @@ from dontanello.modules.reports import (
     previous_month,
     previous_week,
 )
+from dontanello.modules.task_capture import TaskCaptureApplication, TaskResponse
 from dontanello.platform.telegram_cursor import TelegramCursor
 
 PERSONAL_KEYBOARD = {
@@ -52,6 +53,7 @@ class TelegramCommands:
     reminders: ReminderApplication | None = None
     inbox: InboxCaptureApplication | None = None
     planning: CalendarPlanningApplication | None = None
+    task_capture: TaskCaptureApplication | None = None
 
     def run(self) -> int:
         offset = self.cursor.load()
@@ -87,6 +89,10 @@ class TelegramCommands:
                 planning_request = bool(
                     self.planning and self.planning.accepts_message(routed_text, now)
                 )
+                task_capture_request = bool(
+                    self.task_capture
+                    and self.task_capture.accepts_message(routed_text, now, update_id)
+                )
                 availability_request = command_name == "/availability"
                 if (
                     command_name in ("/week", "/month", "/start", "/help", "/status")
@@ -94,6 +100,7 @@ class TelegramCommands:
                     or reminder_request
                     or inbox_request
                     or planning_request
+                    or task_capture_request
                 ):
                     key = f"command:{update_id}"
                     if self.delivery.needs_delivery(key, now):
@@ -135,6 +142,16 @@ class TelegramCommands:
                                 else "Не получилось разобрать запрос."
                             )
                             reply_markup = _telegram_markup(planner_response)
+                        elif task_capture_request and self.task_capture:
+                            task_response = self.task_capture.handle_message(
+                                update_id, routed_text, now
+                            )
+                            text = (
+                                task_response.text
+                                if task_response
+                                else "Не получилось подготовить задачу."
+                            )
+                            reply_markup = _telegram_markup(task_response)
                         elif inbox_request and self.inbox:
                             text = self.inbox.handle_message(update_id, routed_text, now) or ""
                         else:
@@ -147,6 +164,7 @@ class TelegramCommands:
                                 "Нажми «Inbox» или напиши, что сохранить: «Запиши в инбокс: узнать про аффинный шифр».\n\n"
                                 "✅ МОИ ЗАДАЧИ\n"
                                 "Кнопка «Мои задачи» покажет просроченное, задачи на сегодня и ближайшие дедлайны.\n"
+                                "Чтобы добавить задачу в Notion, напиши: «Добавь задачу прочитать презентацию до пятницы» и подтверди карточку.\n"
                                 "Кнопка «Настройки дедлайнов» открывает расписание уведомлений.\n\n"
                                 "⏰ НАПОМИНАНИЯ\n"
                                 "Кнопка «Напоминания» покажет активные; напиши: «Напомни завтра вечером позвонить».\n\n"
@@ -189,7 +207,11 @@ class TelegramCommands:
             and str(sender.get("id", "")) == self.chat_id
             and not sender.get("is_bot", False)
         )
-        if not authorized or self.planning is None or not callback_id:
+        if (
+            not authorized
+            or not callback_id
+            or (self.planning is None and self.task_capture is None)
+        ):
             return
         now = self.now()
         key = f"calendar-callback:{callback_id}"
@@ -198,8 +220,14 @@ class TelegramCommands:
         text = self.delivery.existing_text(key)
         markup = self.delivery.existing_reply_markup(key)
         if text is None:
-            data = callback.get("data")
-            response = self.planning.handle_callback(str(data or ""), now)
+            data = str(callback.get("data") or "")
+            response: PlannerResponse | TaskResponse
+            if data.startswith("t:") and self.task_capture:
+                response = self.task_capture.handle_callback(data)
+            elif self.planning:
+                response = self.planning.handle_callback(data, now)
+            else:
+                return
             text = response.text
             markup = _telegram_markup(response)
         self.delivery.deliver(key, text, now, reply_markup=markup)
@@ -207,7 +235,7 @@ class TelegramCommands:
             raise RuntimeError("Queued calendar response awaiting delivery retry")
 
 
-def _telegram_markup(response: PlannerResponse | None) -> dict[str, Any] | None:
+def _telegram_markup(response: PlannerResponse | TaskResponse | None) -> dict[str, Any] | None:
     if response is None or not response.button_rows:
         return None
     return {

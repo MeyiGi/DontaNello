@@ -1,0 +1,23 @@
+"""Notion task capture boundaries."""
+
+from typing import Protocol
+
+from .models import TaskDraft, TaskProposal
+
+
+class TaskWriter(Protocol):
+    def create(self, draft: TaskDraft) -> str: ...
+
+
+class TaskCaptureRepository(Protocol):
+    def proposal_for_update(self, update_id: int) -> TaskProposal | None: ...
+
+    def get_proposal(self, proposal_id: str) -> TaskProposal | None: ...
+
+    def save_proposal(self, proposal: TaskProposal) -> None: ...
+
+    def claim_create(self, proposal_id: str) -> TaskProposal | None: ...
+
+    def finish(self, proposal_id: str, status: str, page_url: str = "") -> None: ...
+
+    def recover_inflight(self) -> None: ...

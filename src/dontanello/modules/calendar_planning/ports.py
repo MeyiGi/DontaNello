@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Protocol
 
-from .models import CalendarEvent, PlanProposal, PlanRequest, TimeSlot
+from .models import CalendarEvent, PendingPlanIntent, PlanProposal, PlanRequest, TimeSlot
 
 
 class CalendarGateway(Protocol):
@@ -22,6 +22,14 @@ class PlanningRepository(Protocol):
     def get_proposal(self, proposal_id: str) -> PlanProposal | None: ...
 
     def save_proposal(self, proposal: PlanProposal) -> None: ...
+
+    def pending_intent(self) -> PendingPlanIntent | None: ...
+
+    def save_pending_intent(self, intent: PendingPlanIntent) -> None: ...
+
+    def clear_pending_intent(self) -> None: ...
+
+    def save_proposal_and_clear_pending(self, proposal: PlanProposal) -> None: ...
 
 
 class PlanningRequestInterpreter(Protocol):
