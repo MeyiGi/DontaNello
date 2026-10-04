@@ -24,6 +24,8 @@ from dontanello.modules.completion.adapters.notion import (
 from dontanello.modules.inbox import InboxCaptureApplication
 from dontanello.modules.inbox.adapters.notion import NotionInboxConfig, NotionInboxWriter
 from dontanello.modules.inbox.adapters.sqlite import SQLiteInboxCaptureStore
+from dontanello.modules.message_intent import MessageIntentInterpreter
+from dontanello.modules.message_intent.adapters.groq import GroqMessageIntentInterpreter
 from dontanello.modules.operations import BackupService, ErrorMonitor
 from dontanello.modules.operations.adapters.filesystem_backups import FileBackupStore
 from dontanello.modules.operations.adapters.json_alerts import JsonAlertState
@@ -72,6 +74,7 @@ class Runtime:
     inbox_app: InboxCaptureApplication | None = None
     planning_app: CalendarPlanningApplication | None = None
     task_capture_app: TaskCaptureApplication | None = None
+    message_intent_interpreter: MessageIntentInterpreter | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -229,6 +232,7 @@ class Runtime:
             inbox=self.inbox_app,
             planning=self.planning_app,
             task_capture=self.task_capture_app,
+            message_intent=self.message_intent_interpreter,
         )
         menu = [
             {"command": "week", "description": "Обзор за прошлую неделю"},
@@ -324,6 +328,15 @@ def build_runtime(settings: Settings) -> Runtime:
             client, NotionTaskConfig(**notion_task_config), settings.timezone
         )
     runtime = Runtime(settings, sources, report_sources, task_deadline_source=task_deadline_source)
+    groq_message_client = None
+    if settings.groq_planning_api_key:
+        groq_message_client = GroqClient(
+            settings.groq_planning_api_key,
+            settings.groq_planning_model,
+            timeout=15,
+            max_output_tokens=350,
+        )
+        runtime.message_intent_interpreter = GroqMessageIntentInterpreter(groq_message_client)
     planning_config = settings.config.get("calendar_planning", {})
     if planning_config:
         calendar_client = GoogleCalendarClient(
@@ -332,16 +345,7 @@ def build_runtime(settings: Settings) -> Runtime:
             settings.root / "state" / "google_calendar_token.json",
             planning_config.get("calendar_id", "primary"),
         )
-        interpreter = None
-        if settings.groq_planning_api_key:
-            interpreter = GroqPlanningInterpreter(
-                GroqClient(
-                    settings.groq_planning_api_key,
-                    settings.groq_planning_model,
-                    timeout=15,
-                    max_output_tokens=250,
-                )
-            )
+        interpreter = GroqPlanningInterpreter(groq_message_client) if groq_message_client else None
         runtime.planning_app = CalendarPlanningApplication(
             SQLitePlanningRepository(settings.root / "state" / "calendar_planning.sqlite3"),
             GoogleCalendarAdapter(calendar_client, settings.timezone),

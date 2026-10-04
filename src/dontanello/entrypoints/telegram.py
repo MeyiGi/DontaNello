@@ -8,6 +8,7 @@ from typing import Any
 from dontanello.integrations.telegram.client import TelegramClient
 from dontanello.modules.calendar_planning import CalendarPlanningApplication, PlannerResponse
 from dontanello.modules.inbox import InboxCaptureApplication
+from dontanello.modules.message_intent import MessageIntent, MessageIntentInterpreter
 from dontanello.modules.reminders import ReminderApplication
 from dontanello.modules.reports import (
     DeliveryService,
@@ -15,7 +16,7 @@ from dontanello.modules.reports import (
     previous_month,
     previous_week,
 )
-from dontanello.modules.task_capture import TaskCaptureApplication, TaskResponse
+from dontanello.modules.task_capture import TaskCaptureApplication, TaskDraft, TaskResponse
 from dontanello.platform.telegram_cursor import TelegramCursor
 
 PERSONAL_KEYBOARD = {
@@ -54,6 +55,7 @@ class TelegramCommands:
     inbox: InboxCaptureApplication | None = None
     planning: CalendarPlanningApplication | None = None
     task_capture: TaskCaptureApplication | None = None
+    message_intent: MessageIntentInterpreter | None = None
 
     def run(self) -> int:
         offset = self.cursor.load()
@@ -80,28 +82,33 @@ class TelegramCommands:
                 routed_text = _KEYBOARD_COMMANDS.get(raw_text, raw_text)
                 command = routed_text.split(maxsplit=1)
                 command_name = command[0].split("@", 1)[0].lower() if command else ""
-                reminder_request = bool(
-                    self.reminders and self.reminders.accepts_message(routed_text)
-                )
-                inbox_request = bool(
-                    self.inbox and self.inbox.accepts_message(routed_text, now, update_id)
-                )
-                planning_request = bool(
-                    self.planning and self.planning.accepts_message(routed_text, now)
-                )
-                task_capture_request = bool(
-                    self.task_capture
-                    and self.task_capture.accepts_message(routed_text, now, update_id)
-                )
                 availability_request = command_name == "/availability"
-                if (
-                    command_name in ("/week", "/month", "/start", "/help", "/status")
-                    or availability_request
-                    or reminder_request
-                    or inbox_request
-                    or planning_request
-                    or task_capture_request
-                ):
+                natural_text = bool(routed_text.strip()) and not routed_text.lstrip().startswith(
+                    "/"
+                )
+                reminder_command = bool(
+                    self.reminders
+                    and command_name.startswith("/")
+                    and self.reminders.accepts_message(routed_text)
+                )
+                inbox_command = bool(self.inbox and command_name == "/inbox")
+                planning_followup = bool(
+                    self.planning and self.planning.accepts_pending_reply(routed_text, now)
+                )
+                supported_command = (
+                    command_name
+                    in {
+                        "/week",
+                        "/month",
+                        "/start",
+                        "/help",
+                        "/status",
+                        "/availability",
+                    }
+                    or reminder_command
+                    or inbox_command
+                )
+                if supported_command or planning_followup or natural_text:
                     key = f"command:{update_id}"
                     if self.delivery.needs_delivery(key, now):
                         existing = self.delivery.existing_text(key)
@@ -130,19 +137,11 @@ class TelegramCommands:
                             )
                             text = availability_response.text
                             reply_markup = _telegram_markup(availability_response)
-                        elif reminder_request and self.reminders:
+                        elif reminder_command and self.reminders:
                             text = self.reminders.handle_message(update_id, routed_text, now) or ""
-                        elif task_capture_request and self.task_capture:
-                            task_response = self.task_capture.handle_message(
-                                update_id, routed_text, now
-                            )
-                            text = (
-                                task_response.text
-                                if task_response
-                                else "Не получилось подготовить задачу."
-                            )
-                            reply_markup = _telegram_markup(task_response)
-                        elif planning_request and self.planning:
+                        elif inbox_command and self.inbox:
+                            text = self.inbox.handle_message(update_id, routed_text, now) or ""
+                        elif planning_followup and self.planning:
                             planner_response = self.planning.handle_message(
                                 update_id, routed_text, now
                             )
@@ -152,8 +151,10 @@ class TelegramCommands:
                                 else "Не получилось разобрать запрос."
                             )
                             reply_markup = _telegram_markup(planner_response)
-                        elif inbox_request and self.inbox:
-                            text = self.inbox.handle_message(update_id, routed_text, now) or ""
+                        elif natural_text:
+                            text, reply_markup = self._route_natural_message(
+                                update_id, routed_text, now
+                            )
                         else:
                             text = (
                                 "DONTANELLO\n\n"
@@ -164,7 +165,7 @@ class TelegramCommands:
                                 "Нажми «Inbox» или напиши, что сохранить: «Запиши в инбокс: узнать про аффинный шифр».\n\n"
                                 "✅ МОИ ЗАДАЧИ\n"
                                 "Кнопка «Мои задачи» покажет просроченное, задачи на сегодня и ближайшие дедлайны.\n"
-                                "Чтобы добавить задачу в Notion, напиши: «Добавь задачу прочитать презентацию до пятницы» и подтверди карточку.\n"
+                                "Чтобы добавить задачу в Notion, напиши: «Добавь задачу прочитать презентацию до пятницы» — я сразу сохраню её.\n"
                                 "Кнопка «Настройки дедлайнов» открывает расписание уведомлений.\n\n"
                                 "⏰ НАПОМИНАНИЯ\n"
                                 "Кнопка «Напоминания» покажет активные; напиши: «Напомни завтра вечером позвонить».\n\n"
@@ -189,6 +190,91 @@ class TelegramCommands:
             # Uncertain sends are journaled and skipped on replay, preventing blind duplicates.
             self.cursor.save(update_id + 1)
         return handled
+
+    def _route_natural_message(
+        self, update_id: int, text: str, now: datetime
+    ) -> tuple[str, dict[str, Any] | None]:
+        if self.message_intent is None:
+            return (
+                "Не удалось определить действие: Groq-маршрутизация не настроена. Ничего не сохранил.",
+                None,
+            )
+
+        inbox_pending = bool(self.inbox and self.inbox.has_pending_prompt(now))
+        try:
+            intent = self.message_intent.interpret(
+                text,
+                now,
+                inbox_prompt_pending=inbox_pending,
+            )
+        except Exception:
+            intent = None
+
+        if intent is None or intent.confidence == "low":
+            if inbox_pending and self.inbox:
+                self.inbox.clear_pending_prompt()
+            return (
+                "Не понял, куда направить сообщение. Напиши его ещё раз как идею для Inbox, "
+                "задачу, план в календаре или напоминание. Ничего не записал.",
+                None,
+            )
+
+        handlers: dict[str, Callable[[MessageIntent], tuple[str, dict[str, Any] | None]]] = {
+            "inbox": lambda value: self._save_inbox_intent(update_id, value, now),
+            "task": lambda value: self._save_task_intent(update_id, text, value, now),
+            "calendar": lambda value: self._save_calendar_intent(update_id, value, now),
+            "reminder": lambda value: self._save_reminder_intent(update_id, value, now),
+        }
+        handler = handlers.get(intent.destination)
+        if handler is None:
+            if inbox_pending and self.inbox:
+                self.inbox.clear_pending_prompt()
+            return (
+                "Могу сохранить идею в Inbox, создать задачу, предложить время в календаре "
+                "или поставить напоминание. Уточни, что сделать. Ничего не записал.",
+                None,
+            )
+
+        if intent.destination != "inbox" and inbox_pending and self.inbox:
+            self.inbox.clear_pending_prompt()
+        return handler(intent)
+
+    def _save_inbox_intent(
+        self, update_id: int, intent: MessageIntent, now: datetime
+    ) -> tuple[str, None]:
+        if self.inbox is None:
+            return "Inbox пока не настроен. Ничего не записал.", None
+        return self.inbox.save_title(update_id, intent.title, now), None
+
+    def _save_task_intent(
+        self, update_id: int, request_text: str, intent: MessageIntent, now: datetime
+    ) -> tuple[str, dict[str, Any] | None]:
+        if self.task_capture is None:
+            return "Создание задач пока не настроено. Ничего не записал.", None
+        response = self.task_capture.handle_draft(
+            update_id,
+            request_text,
+            TaskDraft(intent.title, intent.due_date),
+        )
+        return response.text, _telegram_markup(response)
+
+    def _save_calendar_intent(
+        self, update_id: int, intent: MessageIntent, now: datetime
+    ) -> tuple[str, dict[str, Any] | None]:
+        if self.planning is None:
+            return "Планирование в Google Calendar пока не настроено. Ничего не менял.", None
+        response = self.planning.handle_message(update_id, intent.normalized_text, now)
+        if response is None:
+            return "Не получилось разобрать запрос для календаря. Ничего не менял.", None
+        return response.text, _telegram_markup(response)
+
+    def _save_reminder_intent(
+        self, update_id: int, intent: MessageIntent, now: datetime
+    ) -> tuple[str, None]:
+        if self.reminders is None:
+            return "Напоминания пока не настроены. Ничего не записал.", None
+        text = self.reminders.handle_message(update_id, intent.normalized_text, now)
+        return text or "Не получилось создать напоминание. Ничего не записал.", None
 
     def _handle_callback(self, callback: dict[str, Any]) -> None:
         callback_id = str(callback.get("id", ""))

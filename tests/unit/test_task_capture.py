@@ -76,6 +76,16 @@ class TaskCaptureTests(unittest.TestCase):
         self.assertIn("✅ Добавил задачу", prompt.text)
         self.assertEqual(self.writer.drafts[0].due_date, None)
 
+    def test_interpreted_task_draft_is_idempotently_written(self):
+        draft = TaskDraft("Проверить FTP у Райымбека агая", date(2026, 10, 9))
+
+        first = self.app.handle_draft(33, "проверь ftp у Райымбека агая в пятницу", draft)
+        replay = self.app.handle_draft(33, "проверь ftp у Райымбека агая в пятницу", draft)
+
+        self.assertEqual(first, replay)
+        self.assertIn("09.10.2026", first.text)
+        self.assertEqual(self.writer.drafts, [draft])
+
     def test_proposal_survives_restart_and_database_is_private(self):
         self.app.handle_message(13, "Добавь задачу проверить тему", self.now)
         restarted = TaskCaptureApplication(SQLiteTaskCaptureRepository(self.path), self.writer)

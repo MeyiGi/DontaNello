@@ -36,6 +36,16 @@ class InboxCaptureApplication:
     def recover_inflight(self) -> None:
         self.store.recover_inflight()
 
+    def has_pending_prompt(self, now: datetime) -> bool:
+        return self.store.has_pending_prompt(now.timestamp())
+
+    def clear_pending_prompt(self) -> None:
+        self.store.clear_pending_prompt()
+
+    @staticmethod
+    def is_explicit_request(text: str) -> bool:
+        return parse_inbox_request(text) is not None
+
     def accepts_message(self, text: str, now: datetime, update_id: int | None = None) -> bool:
         if update_id is not None and self.store.has_capture(update_id):
             return True
@@ -48,7 +58,14 @@ class InboxCaptureApplication:
             and self.store.has_pending_prompt(now.timestamp())
         )
 
-    def handle_message(self, update_id: int, text: str, now: datetime) -> str | None:
+    def handle_message(
+        self,
+        update_id: int,
+        text: str,
+        now: datetime,
+        *,
+        title_override: str | None = None,
+    ) -> str | None:
         title = parse_inbox_request(text)
         if title == "":
             self.store.set_pending_prompt((now + PROMPT_TTL).timestamp())
@@ -63,12 +80,24 @@ class InboxCaptureApplication:
                     return "Хорошо, ввод заметки в Inbox отменён."
                 return None
             title = re.sub(r"\s+", " ", text).strip()
+            if title_override:
+                title = _clean_title(title_override) or title
             capture = self.store.claim_pending(update_id, title, now.isoformat(), now.timestamp())
             if capture is None:
                 return None
         else:
+            if title_override and title:
+                title = _clean_title(title_override) or title
             self.store.clear_pending_prompt()
             capture = self.store.claim(update_id, title, now.isoformat())
+        return self._write_capture(capture)
+
+    def save_title(self, update_id: int, title: str, now: datetime) -> str:
+        clean_title = _clean_title(title)
+        if not clean_title:
+            return "Не получилось подготовить заметку. Ничего не записал."
+        self.store.clear_pending_prompt()
+        capture = self.store.claim(update_id, clean_title, now.isoformat())
         return self._write_capture(capture)
 
     def _write_capture(self, capture: InboxCapture) -> str:
@@ -103,3 +132,7 @@ def _uncertain_message(title: str) -> str:
         f"⚠️ Не могу подтвердить, сохранилась ли запись «{title}». "
         "Проверь Inbox перед повторной отправкой, чтобы не создать дубль."
     )
+
+
+def _clean_title(title: str) -> str:
+    return re.sub(r"\s+", " ", title).strip(" \t\r\n:—,-")[:120]

@@ -1,12 +1,13 @@
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from dontanello.entrypoints.telegram import PERSONAL_KEYBOARD, TelegramCommands
 from dontanello.modules.calendar_planning import InlineButton, PlannerResponse
+from dontanello.modules.message_intent import MessageIntent
 from dontanello.modules.reports import DeliveryRejected, DeliveryService, DeliveryUncertain
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -72,17 +73,32 @@ class FakeInbox:
             return "saved note"
         return "inbox response"
 
+    def has_pending_prompt(self, now):
+        return self.pending
+
+    def clear_pending_prompt(self):
+        self.pending = False
+
+    def save_title(self, update_id, title, now):
+        self.calls.append((update_id, title, now))
+        self.pending = False
+        return "saved note"
+
 
 class FakePlanning:
     def __init__(self):
         self.calls = []
         self.callback_calls = []
         self.availability_calls = []
+        self.pending_reply = None
 
     def accepts_message(self, text, now):
         return text.startswith("сегодня хочу") or (
             "добавь задачу" in text.casefold() and "пятниц" in text.casefold()
         )
+
+    def accepts_pending_reply(self, text, now):
+        return text == self.pending_reply
 
     def handle_message(self, update_id, text, now):
         self.calls.append((update_id, text))
@@ -117,11 +133,33 @@ class FakeTaskCapture:
 
         return TaskResponse("confirm", ((TaskButton("Создать", "t:id:add"),),))
 
+    def handle_draft(self, update_id, request_text, draft):
+        self.calls.append((update_id, request_text, draft))
+        from dontanello.modules.task_capture import TaskResponse
+
+        return TaskResponse(f"created: {draft.title}")
+
     def handle_callback(self, data):
         self.callbacks.append(data)
         from dontanello.modules.task_capture import TaskResponse
 
         return TaskResponse("task created")
+
+
+class FakeIntentInterpreter:
+    def __init__(self, intents):
+        self.intents = intents
+        self.calls = []
+
+    def interpret(
+        self,
+        text,
+        now,
+        *,
+        inbox_prompt_pending,
+    ):
+        self.calls.append((text, inbox_prompt_pending))
+        return self.intents.get(text)
 
 
 def update(identifier, chat_id=123, kind="private", command="/week"):
@@ -239,33 +277,41 @@ class TelegramCommandTests(unittest.TestCase):
 
         self.assertEqual(self.telegram.markups[0], PERSONAL_KEYBOARD)
 
-    def test_task_capture_uses_confirmation_and_callback_only_for_owner(self):
+    def test_classified_task_is_sent_to_task_application_and_callback_only_for_owner(self):
         capture = FakeTaskCapture()
         self.commands.task_capture = capture
+        phrase = "Добавь задачу прочитать презентацию"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {phrase: MessageIntent("task", "high", "Прочитать презентацию")}
+        )
         self.telegram.items = [
-            update(1, command="Добавь задачу прочитать презентацию"),
+            update(1, command=phrase),
             callback_update(2, callback_id="task-ok", data="t:id:add"),
             callback_update(3, callback_id="other", chat_id=999, user_id=999),
         ]
 
         self.commands.run()
 
-        self.assertEqual(capture.calls[0][1], "Добавь задачу прочитать презентацию")
-        self.assertEqual(
-            self.telegram.markups[0]["inline_keyboard"][0][0]["callback_data"], "t:id:add"
-        )
+        self.assertEqual(capture.calls[0][1], phrase)
+        self.assertEqual(capture.calls[0][2].title, "Прочитать презентацию")
+        self.assertEqual(self.telegram.sent[0][1], "created: Прочитать презентацию")
         self.assertEqual(capture.callbacks, ["t:id:add"])
 
-    def test_explicit_task_is_routed_before_calendar_interpretation(self):
+    def test_groq_intent_routes_task_without_calendar_guessing(self):
         capture = FakeTaskCapture()
         planner = FakePlanning()
         self.commands.task_capture = capture
         self.commands.planning = planner
-        self.telegram.items = [update(1, command="Добавь задачу проверить ftp в пятницу")]
+        phrase = "Добавь задачу проверить ftp в пятницу"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {phrase: MessageIntent("task", "high", "Проверить FTP", date(2026, 10, 2))}
+        )
+        self.telegram.items = [update(1, command=phrase)]
 
         self.commands.run()
 
-        self.assertEqual(capture.calls[0][1], "Добавь задачу проверить ftp в пятницу")
+        self.assertEqual(capture.calls[0][1], phrase)
+        self.assertEqual(capture.calls[0][2].due_date, date(2026, 10, 2))
         self.assertEqual(planner.calls, [])
 
     def test_cursor_failure_after_delivery_does_not_send_twice(self):
@@ -317,7 +363,11 @@ class TelegramCommandTests(unittest.TestCase):
     def test_private_reminder_command_delegates_to_reminder_application(self):
         reminders = FakeReminders()
         self.commands.reminders = reminders
-        self.telegram.items = [update(1, command="Напомни завтра позвонить")]
+        phrase = "Напомни завтра позвонить"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {phrase: MessageIntent("reminder", "high", normalized_text=phrase)}
+        )
+        self.telegram.items = [update(1, command=phrase)]
         self.commands.run()
         self.assertEqual(len(reminders.calls), 1)
         self.assertIn("reminder response", self.telegram.sent[0][1])
@@ -325,7 +375,15 @@ class TelegramCommandTests(unittest.TestCase):
     def test_calendar_request_sends_inline_confirmation_without_side_effect(self):
         planning = FakePlanning()
         self.commands.planning = planning
-        self.telegram.items = [update(1, command="сегодня хочу 1 час почитать")]
+        phrase = "сегодня хочу 1 час почитать"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {
+                phrase: MessageIntent(
+                    "calendar", "high", normalized_text="сегодня хочу 1 час почитать"
+                )
+            }
+        )
+        self.telegram.items = [update(1, command=phrase)]
 
         self.commands.run()
 
@@ -368,20 +426,28 @@ class TelegramCommandTests(unittest.TestCase):
     def test_inbox_capture_is_private_and_routes_to_inbox_application(self):
         inbox = FakeInbox()
         self.commands.inbox = inbox
+        phrase = "Напиши в инбокс хочу узнать, что такое шифр"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {phrase: MessageIntent("inbox", "high", "Хочу узнать, что такое шифр")}
+        )
         self.telegram.items = [
-            update(1, command="Напиши в инбокс хочу узнать, что такое шифр"),
+            update(1, command=phrase),
             update(2, chat_id=999, command="Напиши в инбокс чужая заметка"),
             update(3, kind="group", command="/inbox групповая заметка"),
         ]
         self.commands.run()
         self.assertEqual(len(inbox.calls), 1)
-        self.assertEqual(inbox.calls[0][0:2], (1, "Напиши в инбокс хочу узнать, что такое шифр"))
-        self.assertEqual(self.telegram.sent[0][1], "inbox response")
+        self.assertEqual(inbox.calls[0][0:2], (1, "Хочу узнать, что такое шифр"))
+        self.assertEqual(self.telegram.sent[0][1], "saved note")
 
     def test_inbox_button_accepts_next_plain_message_and_returns_capture_confirmation(self):
         inbox = FakeInbox()
         self.commands.inbox = inbox
-        self.telegram.items = [update(1, command="📥 Inbox"), update(2, command="Аффинный шифр")]
+        phrase = "Аффинный шифр"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {phrase: MessageIntent("inbox", "medium", "Аффинный шифр")}
+        )
+        self.telegram.items = [update(1, command="📥 Inbox"), update(2, command=phrase)]
 
         self.commands.run()
 
@@ -393,15 +459,71 @@ class TelegramCommandTests(unittest.TestCase):
         reminders = FakeReminders()
         self.commands.inbox = inbox
         self.commands.reminders = reminders
+        phrase = "Напомни завтра позвонить"
+        interpreter = FakeIntentInterpreter(
+            {phrase: MessageIntent("reminder", "high", normalized_text=phrase)}
+        )
+        self.commands.message_intent = interpreter
         self.telegram.items = [
             update(1, command="📥 Inbox"),
-            update(2, command="Напомни завтра позвонить"),
+            update(2, command=phrase),
         ]
 
         self.commands.run()
 
         self.assertEqual([item[1] for item in reminders.calls], ["Напомни завтра позвонить"])
         self.assertEqual(self.telegram.sent[-1][1], "reminder response")
+        self.assertEqual(interpreter.calls[-1], (phrase, True))
+        self.assertFalse(inbox.pending)
+
+    def test_calendar_message_overrides_pending_inbox_capture(self):
+        inbox = FakeInbox()
+        planning = FakePlanning()
+        self.commands.inbox = inbox
+        self.commands.planning = planning
+        phrase = "Хочу позаниматься информационной безопасностью 09.10"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {
+                phrase: MessageIntent(
+                    "calendar",
+                    "high",
+                    normalized_text="Хочу позаниматься информационной безопасностью 09.10",
+                )
+            }
+        )
+        self.telegram.items = [update(1, command="📥 Inbox"), update(2, command=phrase)]
+
+        self.commands.run()
+
+        self.assertEqual(planning.calls, [(2, phrase)])
+        self.assertFalse(inbox.pending)
+        self.assertEqual(self.telegram.sent[-1][1], "suggested")
+
+    def test_calendar_duration_reply_continues_existing_prompt_without_reclassification(self):
+        planning = FakePlanning()
+        planning.pending_reply = "1,5 часа"
+        self.commands.planning = planning
+        self.telegram.items = [update(1, command="1,5 часа")]
+
+        self.commands.run()
+
+        self.assertEqual(planning.calls, [(1, "1,5 часа")])
+        self.assertEqual(self.telegram.sent[0][1], "suggested")
+
+    def test_low_confidence_does_not_write_and_clears_pending_inbox(self):
+        inbox = FakeInbox()
+        self.commands.inbox = inbox
+        phrase = "может потом это сделать"
+        self.commands.message_intent = FakeIntentInterpreter(
+            {phrase: MessageIntent("clarify", "low")}
+        )
+        self.telegram.items = [update(1, command="📥 Inbox"), update(2, command=phrase)]
+
+        self.commands.run()
+
+        self.assertFalse(inbox.pending)
+        self.assertEqual(len(inbox.calls), 1)
+        self.assertIn("Ничего не записал", self.telegram.sent[-1][1])
 
     def test_help_menu_does_not_expose_work_commands(self):
         self.telegram.items = [update(1, command="/help")]

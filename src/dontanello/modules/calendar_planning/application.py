@@ -57,6 +57,10 @@ class CalendarPlanningApplication:
             parse_plan_intent(text, now) is not None or self.interpreter is not None
         ):
             return True
+        return self.accepts_pending_reply(text, now)
+
+    def accepts_pending_reply(self, text: str, now: datetime) -> bool:
+        """Identify only a reply to an outstanding duration question."""
         pending = self._pending_intent(now)
         return bool(
             pending

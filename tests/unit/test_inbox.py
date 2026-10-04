@@ -64,6 +64,13 @@ class InboxTests(unittest.TestCase):
         self.assertIn("Записал в Notion Inbox", result)
         self.assertIn("https://notion.test/1", result)
 
+    def test_classified_title_is_saved_without_an_inbox_prompt(self):
+        result = self.app.save_title(63, "  Узнать   что такое аффинный шифр  ", self.now)
+
+        self.assertEqual(self.writer.pages, ["Узнать что такое аффинный шифр"])
+        self.assertIn("Записал в Notion Inbox", result)
+        self.assertFalse(self.app.has_pending_prompt(self.now))
+
     def test_pending_prompt_expires_and_does_not_capture_unrelated_text(self):
         self.app.handle_message(52, "/inbox", self.now)
         later = self.now.replace(minute=11)

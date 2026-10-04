@@ -1,4 +1,4 @@
-"""Confirmed personal task capture from Telegram into Notion."""
+"""Idempotent personal task creation from Telegram into Notion."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import hashlib
 from dataclasses import replace
 from datetime import datetime
 
-from .models import TaskButton, TaskProposal, TaskResponse, TaskWriteRejected
+from .models import TaskButton, TaskDraft, TaskProposal, TaskResponse, TaskWriteRejected
 from .parser import parse_task_draft
 from .ports import TaskCaptureRepository, TaskWriter
 
@@ -25,7 +25,14 @@ class TaskCaptureApplication:
             or parse_task_draft(text, now.date()) is not None
         )
 
-    def handle_message(self, update_id: int, text: str, now: datetime) -> TaskResponse | None:
+    def handle_message(
+        self,
+        update_id: int,
+        text: str,
+        now: datetime,
+        *,
+        title_override: str | None = None,
+    ) -> TaskResponse | None:
         existing = self.repository.proposal_for_update(update_id)
         if existing is not None:
             return (
@@ -41,8 +48,26 @@ class TaskCaptureApplication:
                 "Напиши название задачи после «добавь задачу». Например: "
                 "«добавь задачу прочитать презентацию до завтра»."
             )
-        proposal_id = hashlib.sha256(f"{update_id}:{text}".encode()).hexdigest()[:32]
-        proposal = TaskProposal(proposal_id, update_id, text, draft, "pending")
+        if title_override:
+            title = " ".join(title_override.split())[:120]
+            if title:
+                draft = replace(draft, title=title)
+        return self.handle_draft(update_id, text, draft)
+
+    def handle_draft(self, update_id: int, request_text: str, draft: TaskDraft) -> TaskResponse:
+        existing = self.repository.proposal_for_update(update_id)
+        if existing is not None:
+            return (
+                self._create(existing)
+                if existing.status == "pending"
+                else self._proposal_response(existing)
+            )
+        title = " ".join(draft.title.split())[:120]
+        if not title:
+            return TaskResponse("Не получилось выделить название задачи. Ничего не записал.")
+        draft = replace(draft, title=title)
+        proposal_id = hashlib.sha256(f"{update_id}:{request_text}".encode()).hexdigest()[:32]
+        proposal = TaskProposal(proposal_id, update_id, request_text, draft, "pending")
         self.repository.save_proposal(proposal)
         return self._create(proposal)
 
