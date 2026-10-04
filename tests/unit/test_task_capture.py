@@ -12,6 +12,7 @@ from dontanello.modules.task_capture.adapters.notion import (
 from dontanello.modules.task_capture.adapters.sqlite import SQLiteTaskCaptureRepository
 from dontanello.modules.task_capture.models import TaskDraft, TaskWriteRejected
 from dontanello.modules.task_capture.parser import parse_task_draft
+from dontanello.platform.settings import Settings
 
 
 class FakeWriter:
@@ -49,6 +50,11 @@ class TaskCaptureTests(unittest.TestCase):
         draft = parse_task_draft("Добавь задачу прочитать презентацию до завтра", self.now.date())
         self.assertEqual(draft.title, "прочитать презентацию")
         self.assertEqual(draft.due_date, date(2026, 10, 5))
+        colloquial = parse_task_draft(
+            "Добавь задача проверить ftp у Райымбек агая в пятницу", self.now.date()
+        )
+        self.assertEqual(colloquial.title, "проверить ftp у Райымбек агая")
+        self.assertEqual(colloquial.due_date, date(2026, 10, 9))
         self.assertIsNone(parse_task_draft("Просто прочитать презентацию", self.now.date()))
 
     def test_request_requires_confirmation_then_creates_once_with_link(self):
@@ -103,6 +109,38 @@ class TaskCaptureTests(unittest.TestCase):
 
         self.assertIn("Notion отклонил", result.text)
         self.assertEqual(self.repository.get_proposal(proposal_id).status, "rejected")
+
+    def test_runtime_keeps_creation_status_out_of_deadline_adapter_config(self):
+        from dontanello.bootstrap import build_runtime
+
+        settings = Settings(
+            root=Path(self.temp.name),
+            notion_token="test-token",
+            telegram_token="",
+            timezone=ZoneInfo("Asia/Bishkek"),
+            poll_seconds=1,
+            config={
+                "completion_sources": [],
+                "reminders": {
+                    "notion_tasks": {
+                        "source_id": "tasks-source",
+                        "title_property": "Name",
+                        "due_property": "Due",
+                        "next_due_property": "Next Due",
+                        "checkbox_properties": ["Сделано", "Готово"],
+                        "status_property": "List",
+                        "context_property": "Context",
+                        "create_default_status": "Backlog 🐛",
+                    }
+                },
+            },
+        )
+
+        runtime = build_runtime(settings)
+
+        self.assertIsNotNone(runtime.task_deadline_source)
+        self.assertIsNotNone(runtime.task_capture_app)
+        self.assertEqual(runtime.task_capture_app.writer.config.default_status, "Backlog 🐛")
 
     def test_notion_adapter_uses_personal_tasks_schema(self):
         notion = FakeNotion()

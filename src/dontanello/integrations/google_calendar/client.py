@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-CALENDAR_SCOPES = ("https://www.googleapis.com/auth/calendar.events",)
+CALENDAR_SCOPES = (
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+)
 _API_ROOT = "https://www.googleapis.com/calendar/v3"
 
 
@@ -47,6 +50,7 @@ class GoogleCalendarClient:
                 open_browser=False,
                 authorization_prompt_message="Открой в браузере ссылку авторизации: {url}",
                 success_message="Google Calendar подключён. Можно закрыть эту вкладку.",
+                prompt="consent",
             )
             self._save_credentials(credentials)
         except Exception:
@@ -55,8 +59,7 @@ class GoogleCalendarClient:
             ) from None
 
     def events(self, start: str, end: str, timezone: str) -> tuple[dict[str, Any], ...]:
-        path = self._calendar_path() + "/events"
-        params: dict[str, str] = {
+        params = {
             "timeMin": start,
             "timeMax": end,
             "timeZone": timezone,
@@ -65,16 +68,56 @@ class GoogleCalendarClient:
             "maxResults": "2500",
         }
         result: list[dict[str, Any]] = []
+        for calendar_id in self._calendar_ids():
+            page_params = dict(params)
+            path = self._calendar_path(calendar_id) + "/events"
+            while True:
+                try:
+                    page = self._request("GET", path, params=page_params)
+                except _CalendarApiError:
+                    raise GoogleCalendarRequestError(
+                        "Google Calendar events are not accessible; renew calendar access"
+                    ) from None
+                items = page.get("items", [])
+                if not isinstance(items, list):
+                    raise GoogleCalendarRequestError(
+                        "Google Calendar returned an invalid event list"
+                    )
+                result.extend(item for item in items if isinstance(item, dict))
+                page_token = page.get("nextPageToken")
+                if not page_token:
+                    break
+                page_params["pageToken"] = str(page_token)
+        return tuple(result)
+
+    def _calendar_ids(self) -> tuple[str, ...]:
+        params = {"maxResults": "250", "minAccessRole": "reader"}
+        result: list[str] = []
         while True:
-            page = self._request("GET", path, params=params)
+            try:
+                page = self._request("GET", "/users/me/calendarList", params=params)
+            except _CalendarApiError:
+                raise GoogleCalendarRequestError(
+                    "Google Calendar list is not accessible; renew calendar access"
+                ) from None
             items = page.get("items", [])
             if not isinstance(items, list):
-                raise GoogleCalendarRequestError("Google Calendar returned an invalid event list")
-            result.extend(item for item in items if isinstance(item, dict))
+                raise GoogleCalendarRequestError(
+                    "Google Calendar returned an invalid calendar list"
+                )
+            for item in items:
+                if not isinstance(item, dict) or item.get("deleted"):
+                    continue
+                identifier = item.get("id")
+                if isinstance(identifier, str) and identifier and identifier not in result:
+                    result.append(identifier)
             page_token = page.get("nextPageToken")
             if not page_token:
-                return tuple(result)
+                break
             params["pageToken"] = str(page_token)
+        if not result:
+            raise GoogleCalendarRequestError("Google Calendar returned no readable calendars")
+        return tuple(result)
 
     def insert_event(
         self,
@@ -229,8 +272,8 @@ class GoogleCalendarClient:
             Path(temporary_name).unlink(missing_ok=True)
             raise
 
-    def _calendar_path(self) -> str:
-        return "/calendars/" + quote(self.calendar_id, safe="")
+    def _calendar_path(self, calendar_id: str | None = None) -> str:
+        return "/calendars/" + quote(calendar_id or self.calendar_id, safe="")
 
 
 class _CalendarApiError(RuntimeError):

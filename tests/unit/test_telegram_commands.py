@@ -80,7 +80,9 @@ class FakePlanning:
         self.availability_calls = []
 
     def accepts_message(self, text, now):
-        return text.startswith("сегодня хочу")
+        return text.startswith("сегодня хочу") or (
+            "добавь задачу" in text.casefold() and "пятниц" in text.casefold()
+        )
 
     def handle_message(self, update_id, text, now):
         self.calls.append((update_id, text))
@@ -107,7 +109,7 @@ class FakeTaskCapture:
         self.callbacks = []
 
     def accepts_message(self, text, now, update_id):
-        return text.startswith("Добавь задачу")
+        return text.casefold().startswith(("добавь задачу", "добавь задача"))
 
     def handle_message(self, update_id, text, now):
         self.calls.append((update_id, text))
@@ -253,6 +255,18 @@ class TelegramCommandTests(unittest.TestCase):
             self.telegram.markups[0]["inline_keyboard"][0][0]["callback_data"], "t:id:add"
         )
         self.assertEqual(capture.callbacks, ["t:id:add"])
+
+    def test_explicit_task_is_routed_before_calendar_interpretation(self):
+        capture = FakeTaskCapture()
+        planner = FakePlanning()
+        self.commands.task_capture = capture
+        self.commands.planning = planner
+        self.telegram.items = [update(1, command="Добавь задачу проверить ftp в пятницу")]
+
+        self.commands.run()
+
+        self.assertEqual(capture.calls[0][1], "Добавь задачу проверить ftp в пятницу")
+        self.assertEqual(planner.calls, [])
 
     def test_cursor_failure_after_delivery_does_not_send_twice(self):
         self.telegram.items = [update(1)]

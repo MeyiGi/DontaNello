@@ -5,13 +5,68 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from dontanello.integrations.google_calendar.client import GoogleCalendarClient
+from dontanello.integrations.google_calendar.client import (
+    CALENDAR_SCOPES,
+    GoogleCalendarClient,
+    GoogleCalendarRequestError,
+    _CalendarApiError,
+)
 from dontanello.modules.calendar_planning.adapters.google_calendar import GoogleCalendarAdapter
 from dontanello.modules.calendar_planning.adapters.sqlite import SQLitePlanningRepository
 from dontanello.modules.calendar_planning.models import PendingPlanIntent, PlanProposal, TimeSlot
 
 
 class CalendarPlanningAdapterTests(unittest.TestCase):
+    def test_calendar_events_are_collected_from_every_readable_calendar(self):
+        client = GoogleCalendarClient(Path("oauth.json"), Path("token.json"))
+        calls = []
+
+        def request(method, path, params=None, body=None):
+            calls.append((method, path, dict(params or {})))
+            if path == "/users/me/calendarList":
+                if params.get("pageToken"):
+                    return {"items": [{"id": "university", "accessRole": "reader"}]}
+                return {
+                    "items": [
+                        {"id": "primary", "accessRole": "owner"},
+                        {"id": "deleted", "deleted": True},
+                    ],
+                    "nextPageToken": "calendar-page-2",
+                }
+            return {"items": [{"id": path.split("/")[2], "start": {}, "end": {}}]}
+
+        client._request = request
+
+        events = client.events(
+            "2026-10-05T00:00:00+06:00", "2026-10-06T00:00:00+06:00", "Asia/Bishkek"
+        )
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(
+            [path for _, path, _ in calls],
+            [
+                "/users/me/calendarList",
+                "/users/me/calendarList",
+                "/calendars/primary/events",
+                "/calendars/university/events",
+            ],
+        )
+        self.assertEqual(calls[0][2]["minAccessRole"], "reader")
+        self.assertIn(
+            "https://www.googleapis.com/auth/calendar.calendarlist.readonly", CALENDAR_SCOPES
+        )
+
+    def test_missing_calendar_list_access_fails_closed_instead_of_reporting_free_time(self):
+        client = GoogleCalendarClient(Path("oauth.json"), Path("token.json"))
+
+        def request(*_args, **_kwargs):
+            raise _CalendarApiError(403)
+
+        client._request = request
+
+        with self.assertRaises(GoogleCalendarRequestError):
+            client.events("2026-10-05T00:00:00+06:00", "2026-10-06T00:00:00+06:00", "Asia/Bishkek")
+
     def test_repository_persists_proposal_and_has_private_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "state" / "planning.sqlite3"

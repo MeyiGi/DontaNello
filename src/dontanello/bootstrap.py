@@ -313,6 +313,7 @@ def build_runtime(settings: Settings) -> Runtime:
     reminder_config = settings.config.get("reminders", {})
     if reminder_config:
         notion_task_config = dict(reminder_config["notion_tasks"])
+        notion_task_config.pop("create_default_status", None)
         for name in (
             "checkbox_properties",
             "excluded_status_values",

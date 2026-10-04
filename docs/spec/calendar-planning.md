@@ -26,3 +26,8 @@ DontaNello accepts natural-language requests to reserve focused time in the owne
 
 - No recurring events, automatic placement without confirmation, hardcoded weekly availability, sleep inference, or general-purpose AI scheduling.
 - No DontaNello Work sources, accounts, or commands.
+# Google Calendar access and availability
+
+- Availability and conflict checks read events from every calendar listed for the authorized Google account with at least `reader` access. The configured `calendar_id` remains the destination for DontaNello-created events and undo.
+- Calendar discovery requires `calendar.calendarlist.readonly` in addition to the existing event permission. After this scope changes, the user must complete OAuth consent again before calendar availability is available.
+- If calendar discovery or an event query fails, the planner must report that it could not read the calendar; it must not treat missing access or a failed query as free time.

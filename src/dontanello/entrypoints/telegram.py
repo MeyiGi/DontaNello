@@ -132,16 +132,6 @@ class TelegramCommands:
                             reply_markup = _telegram_markup(availability_response)
                         elif reminder_request and self.reminders:
                             text = self.reminders.handle_message(update_id, routed_text, now) or ""
-                        elif planning_request and self.planning:
-                            planner_response = self.planning.handle_message(
-                                update_id, routed_text, now
-                            )
-                            text = (
-                                planner_response.text
-                                if planner_response
-                                else "Не получилось разобрать запрос."
-                            )
-                            reply_markup = _telegram_markup(planner_response)
                         elif task_capture_request and self.task_capture:
                             task_response = self.task_capture.handle_message(
                                 update_id, routed_text, now
@@ -152,6 +142,16 @@ class TelegramCommands:
                                 else "Не получилось подготовить задачу."
                             )
                             reply_markup = _telegram_markup(task_response)
+                        elif planning_request and self.planning:
+                            planner_response = self.planning.handle_message(
+                                update_id, routed_text, now
+                            )
+                            text = (
+                                planner_response.text
+                                if planner_response
+                                else "Не получилось разобрать запрос."
+                            )
+                            reply_markup = _telegram_markup(planner_response)
                         elif inbox_request and self.inbox:
                             text = self.inbox.handle_message(update_id, routed_text, now) or ""
                         else:

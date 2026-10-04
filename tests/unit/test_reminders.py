@@ -134,7 +134,7 @@ class ReminderTests(unittest.TestCase):
         self.assertIn("Ближайшие 7 дней · 1", text)
         self.assertIn('<a href="https://notion.test/late">Отправить форму</a>', text)
         self.assertIn(
-            '<a href="https://notion.test/soon">Сдать конспект</a> — осталось 3 дня', text
+            '<a href="https://notion.test/soon">Сдать конспект</a>\n  └ осталось 3 дня', text
         )
         self.assertNotIn("Позже", text)
         self.assertNotIn("Выполнена", text)

@@ -111,7 +111,8 @@ def render_task_overview(tasks: tuple[TaskDeadline, ...], today: date, days_ahea
         lines.extend(("", f"🟡 <b>Ближайшие {days_ahead} дней · {len(upcoming)}</b>"))
         for task in upcoming:
             left = (task.due_date - today).days
-            lines.append(f"• {task.due_date:%d.%m} · {_task_link(task)} — {_remaining_days(left)}")
+            lines.append(f"• {task.due_date:%d.%m} · {_task_link(task)}")
+            lines.append(f"  └ {_remaining_days(left)}")
     elif days_ahead:
         lines.extend(("", f"На следующие {days_ahead} дн. дедлайнов нет."))
     return "\n".join(lines)

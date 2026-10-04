@@ -9,7 +9,7 @@ from .models import TaskDraft
 
 _PREFIX = re.compile(
     r"^\s*(?:добавь|создай|добавить|создать|запиши)\s+(?:мне\s+)?"
-    r"(?:задачу|задачу в задачи|в задачи)\b\s*[:—,-]?\s*(.*)$",
+    r"(?:задачу|задача|задачи|в задачи)\b\s*[:—,-]?\s*(.*)$",
     re.IGNORECASE | re.DOTALL,
 )
 _DATE = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?(?!\d)")
@@ -42,7 +42,7 @@ def parse_task_draft(text: str, today: date) -> TaskDraft | None:
         title = _DATE.sub(" ", title, count=1)
         title = _AFTER_DAYS.sub(" ", title)
         for word in (*_DATE_WORDS, *_WEEKDAYS):
-            title = re.sub(rf"\b(?:до|к|на)?\s*{word}\b", " ", title, flags=re.IGNORECASE)
+            title = re.sub(rf"\b(?:до|к|на|в)?\s*{word}\b", " ", title, flags=re.IGNORECASE)
         title = re.sub(r"\b(?:до|к|на)\s*$", "", title, flags=re.IGNORECASE)
     title = re.sub(r"\s+", " ", title).strip(" \t\r\n:—,-")
     return TaskDraft(title[:120], due)
