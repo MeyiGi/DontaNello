@@ -90,7 +90,7 @@ class TelegramClient:
             "getUpdates",
             {
                 "offset": offset,
-                "timeout": 0,
+                "timeout": 15,
                 "limit": 20,
                 "allowed_updates": ["message"],
             },

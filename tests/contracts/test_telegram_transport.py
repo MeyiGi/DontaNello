@@ -69,6 +69,18 @@ class TelegramTransportTests(unittest.TestCase):
         self.assertTrue(request.full_url.endswith("/setMyCommands"))
         self.assertEqual(json.loads(request.data), {"commands": commands})
 
+    def test_updates_use_long_polling_to_receive_messages_without_five_second_delay(self):
+        client = TelegramClient("fixture-not-a-real-token")
+        with patch(
+            "urllib.request.urlopen",
+            return_value=io.BytesIO(b'{"ok":true,"result":[]}'),
+        ) as call:
+            self.assertEqual(client.updates(12), [])
+        request = call.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(payload["offset"], 12)
+        self.assertEqual(payload["timeout"], 15)
+
     def test_http_400_rejected_but_500_uncertain(self):
         for status, expected in ((400, TelegramRejected), (500, TelegramUncertain)):
             error = urllib.error.HTTPError(

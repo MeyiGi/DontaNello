@@ -238,7 +238,7 @@ class Runtime:
                 interval_seconds=60,
             )
         )
-        jobs.append(Job("telegram", commands.run, group="telegram", interval_seconds=5))
+        jobs.append(Job("telegram", commands.run, group="telegram", interval_seconds=1))
         if reports.get("enabled", False):
             jobs.append(
                 Job(
