@@ -24,6 +24,7 @@ class TelegramCommands:
     now: Callable[[], datetime]
     status: Callable[[], str]
     full_report: Callable[[Period], str] | None = None
+    weekly_weekday: int = 0
 
     def run(self) -> int:
         offset = self.cursor.load()
@@ -50,7 +51,7 @@ class TelegramCommands:
                             text = existing
                         elif command_name in ("/week", "/month"):
                             period = (
-                                previous_week(now.date())
+                                previous_week(now.date(), self.weekly_weekday)
                                 if command_name == "/week"
                                 else previous_month(now.date())
                             )

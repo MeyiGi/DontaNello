@@ -123,16 +123,17 @@ class Runtime:
         )
         reports = self.settings.config.get("reports", {})
         hour, minute = reports.get("hour", 9), reports.get("minute", 0)
+        weekly_weekday = reports.get("weekly_weekday", 0)
         scheduler = ScheduledReports(
-            delivery, self.report, journal.active_since(self.now()), hour, minute
+            delivery, self.report, journal.active_since(self.now()), hour, minute, weekly_weekday
         )
 
         def status() -> str:
             counts = journal.status()
-            schedule = f"{hour:02}:{minute:02} ({self.settings.timezone.key})"
+            schedule = f"{_WEEKDAY_NAMES[weekly_weekday]} и первое число, {hour:02}:{minute:02} ({self.settings.timezone.key})"
             enabled = "включены" if reports.get("enabled", False) else "выключены"
             return (
-                f"Dontanello работает.\nОтчёты {enabled}: понедельник и первое число, {schedule}."
+                f"Dontanello работает.\nОтчёты {enabled}: {schedule}."
                 "\nРезервная копия состояния: ежедневно."
                 f"\nЧастей отчётов доставлено: {counts['sent']}; ожидают: {counts['pending']};"
                 f" требуют проверки: {counts['uncertain']}."
@@ -147,6 +148,7 @@ class Runtime:
             self.now,
             status,
             full_report=lambda period: self.report(period, full=True),
+            weekly_weekday=weekly_weekday,
         )
         jobs.append(Job("telegram", commands.run, group="telegram", interval_seconds=5))
         if reports.get("enabled", False):
@@ -225,6 +227,17 @@ def build_runtime(settings: Settings) -> Runtime:
             clock=runtime.now,
         )
     return runtime
+
+
+_WEEKDAY_NAMES = (
+    "понедельник",
+    "вторник",
+    "среду",
+    "четверг",
+    "пятницу",
+    "субботу",
+    "воскресенье",
+)
 
 
 def verify_backup(root: Path, snapshot_name: str) -> None:

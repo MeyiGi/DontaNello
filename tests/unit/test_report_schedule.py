@@ -61,6 +61,31 @@ class ReportScheduleTests(unittest.TestCase):
         self.assertEqual(len(weekly), 1)
         self.assertEqual(weekly[0], previous_week(date(2025, 9, 1)))
 
+    def test_sunday_schedule_sends_previous_sunday_to_sunday_period(self):
+        scheduler = ScheduledReports(
+            self.delivery,
+            lambda period: self.built.append(period) or "weekly",
+            date(2025, 1, 1),
+            weekly_weekday=6,
+        )
+        scheduler.run(datetime(2025, 9, 7, 9, tzinfo=timezone.utc))
+        weekly = [period for period in self.built if period.kind == "week"]
+        self.assertEqual(
+            weekly,
+            [previous_week(date(2025, 9, 7), weekday=6)],
+        )
+
+    def test_sunday_schedule_before_nine_waits_for_previous_sunday(self):
+        scheduler = ScheduledReports(
+            self.delivery,
+            lambda period: self.built.append(period) or "weekly",
+            date(2025, 1, 1),
+            weekly_weekday=6,
+        )
+        scheduler.run(datetime(2025, 9, 7, 8, 59, tzinfo=timezone.utc))
+        weekly = [period for period in self.built if period.kind == "week"]
+        self.assertEqual(weekly, [previous_week(date(2025, 8, 31), weekday=6)])
+
     def test_activation_floor_skips_pre_activation_due_periods(self):
         scheduler = self.scheduler(activated_on=date(2025, 9, 2))
         now = datetime(2025, 9, 1, 10, tzinfo=timezone.utc)

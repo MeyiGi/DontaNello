@@ -48,7 +48,12 @@ def main(root: Path | None = None) -> None:
         return
     if args.preview_report:
         today = runtime.now().date()
-        period = previous_week(today) if args.preview_report == "week" else previous_month(today)
+        weekday = settings.config.get("reports", {}).get("weekly_weekday", 0)
+        period = (
+            previous_week(today, weekday)
+            if args.preview_report == "week"
+            else previous_month(today)
+        )
         print(runtime.report(period, full=args.full))
         return
     with worker_lock(settings.root / "state" / "worker.lock"):

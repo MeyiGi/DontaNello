@@ -52,6 +52,21 @@ class SettingsTests(unittest.TestCase):
         with patch.dict("os.environ", {}, clear=True), self.assertRaises(ValueError):
             load_settings(self.root)
 
+    def test_invalid_weekly_weekday_rejected_at_startup(self):
+        (self.root / "config" / "settings.json").write_text(
+            json.dumps(
+                {
+                    "completion_sources": [self.source],
+                    "reports": {"weekly_weekday": 7},
+                }
+            )
+        )
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            self.assertRaisesRegex(ValueError, "weekly_weekday"),
+        ):
+            load_settings(self.root)
+
     def test_clock_uses_bishkek_calendar_date(self):
         instant = datetime(2026, 9, 27, 20, 0, tzinfo=timezone.utc)
         with patch("dontanello.platform.clock.datetime") as clock:

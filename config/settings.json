@@ -7,11 +7,12 @@
   "work_source_id": "0bf4e4e4-a735-4101-b43a-38fd6599c820",
   "reports": {
     "enabled": true,
+    "weekly_weekday": 6,
     "hour": 9,
     "minute": 0,
     "ai": {
       "max_rounds": 3,
-      "max_batch_chars": 10000,
+      "max_batch_chars": 20000,
       "max_batches": 32,
       "max_requests": 48,
       "max_output_tokens": 4500,

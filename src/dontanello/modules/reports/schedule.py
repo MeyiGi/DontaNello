@@ -26,9 +26,14 @@ class ScheduledReports:
     activated_on: date
     hour: int = 9
     minute: int = 0
+    weekly_weekday: int = 0
 
     def run(self, now: datetime) -> int:
-        if not 0 <= self.hour <= 23 or not 0 <= self.minute <= 59:
+        if (
+            not 0 <= self.hour <= 23
+            or not 0 <= self.minute <= 59
+            or not 0 <= self.weekly_weekday <= 6
+        ):
             raise ValueError("report schedule time must be a valid local clock time")
         total_sent = 0
         failures: list[str] = []
@@ -57,11 +62,11 @@ class ScheduledReports:
         scheduled_time = time(self.hour, self.minute)
         tz = now.tzinfo
 
-        monday = now.date() - timedelta(days=now.date().weekday())
-        weekly_due = datetime.combine(monday, scheduled_time, tzinfo=tz)
+        weekly_date = now.date() - timedelta(days=(now.date().weekday() - self.weekly_weekday) % 7)
+        weekly_due = datetime.combine(weekly_date, scheduled_time, tzinfo=tz)
         if weekly_due > now:
-            monday -= timedelta(days=7)
-            weekly_due = datetime.combine(monday, scheduled_time, tzinfo=tz)
+            weekly_date -= timedelta(days=7)
+            weekly_due = datetime.combine(weekly_date, scheduled_time, tzinfo=tz)
 
         month_start = now.date().replace(day=1)
         monthly_due = datetime.combine(month_start, scheduled_time, tzinfo=tz)
@@ -71,6 +76,6 @@ class ScheduledReports:
             monthly_due = datetime.combine(month_start, scheduled_time, tzinfo=tz)
 
         return [
-            ("week", weekly_due, previous_week(monday)),
+            ("week", weekly_due, previous_week(weekly_date, self.weekly_weekday)),
             ("month", monthly_due, previous_month(month_start)),
         ]

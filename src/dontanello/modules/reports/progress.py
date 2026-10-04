@@ -173,8 +173,8 @@ class ProgressReports:
 
 def _comparison_period(period: Period) -> Period:
     if period.kind == "week":
-        if period.start.weekday() == 0 and period.end - period.start == timedelta(days=7):
-            return previous_week(period.start)
+        if period.end - period.start == timedelta(days=7):
+            return previous_week(period.start, period.start.weekday())
         length = period.end - period.start
         return Period("week", period.start - length, period.start)
     if period.kind == "month":

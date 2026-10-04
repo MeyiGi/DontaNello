@@ -18,6 +18,12 @@ class ReportPeriodTests(unittest.TestCase):
             Period("week", date(2025, 12, 22), date(2025, 12, 29)),
         )
 
+    def test_previous_week_supports_sunday_boundary(self):
+        self.assertEqual(
+            previous_week(date(2026, 10, 4), weekday=6),
+            Period("week", date(2026, 9, 27), date(2026, 10, 4)),
+        )
+
     def test_previous_month_handles_leap_year_and_year_boundary(self):
         self.assertEqual(
             previous_month(date(2024, 3, 15)),

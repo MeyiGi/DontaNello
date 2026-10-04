@@ -17,10 +17,11 @@ _SECTION_LABELS = {
 }
 
 
-def previous_week(today: date) -> Period:
-    """Return the previous complete Monday-to-Monday week."""
-    this_monday = today - timedelta(days=today.weekday())
-    end = this_monday
+def previous_week(today: date, weekday: int = 0) -> Period:
+    """Return the previous complete week ending on the configured weekday."""
+    if not 0 <= weekday <= 6:
+        raise ValueError("weekday must be between 0 (Monday) and 6 (Sunday)")
+    end = today - timedelta(days=(today.weekday() - weekday) % 7)
     return Period("week", end - timedelta(days=7), end)
 
 

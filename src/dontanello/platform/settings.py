@@ -62,6 +62,11 @@ def load_settings(root: Path) -> Settings:
         value = reports.get(name, default)
         if type(value) is not int or not 0 <= value <= maximum:
             raise ValueError(f"Некорректное время отчётов: {name}")
+    weekly_weekday = reports.get("weekly_weekday", 0)
+    if type(weekly_weekday) is not int or not 0 <= weekly_weekday <= 6:
+        raise ValueError(
+            "reports.weekly_weekday должен быть числом от 0 (понедельник) до 6 (воскресенье)"
+        )
     report_sources = reports.get("sources", [])
     if not isinstance(report_sources, list) or (reports.get("enabled") and not report_sources):
         raise ValueError("Отчёты требуют sources")
