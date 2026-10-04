@@ -52,6 +52,50 @@ class InboxTests(unittest.TestCase):
         self.assertEqual(first, again)
         self.assertIn("https://notion.test/1", first)
 
+    def test_keyboard_prompt_captures_next_plain_message_and_confirms_with_link(self):
+        prompt = self.app.handle_message(50, "/inbox", self.now)
+        self.assertIn("следующим сообщением", prompt)
+
+        text = "Хочу узнать, что такое аффинный шифр"
+        self.assertTrue(self.app.accepts_message(text, self.now, update_id=51))
+        result = self.app.handle_message(51, text, self.now)
+
+        self.assertEqual(self.writer.pages, [text])
+        self.assertIn("Записал в Notion Inbox", result)
+        self.assertIn("https://notion.test/1", result)
+
+    def test_pending_prompt_expires_and_does_not_capture_unrelated_text(self):
+        self.app.handle_message(52, "/inbox", self.now)
+        later = self.now.replace(minute=11)
+        text = "Просто обычное сообщение"
+
+        self.assertFalse(self.app.accepts_message(text, later, update_id=53))
+        self.assertIsNone(self.app.handle_message(53, text, later))
+        self.assertEqual(self.writer.pages, [])
+
+    def test_pending_prompt_survives_service_restart(self):
+        self.app.handle_message(61, "/inbox", self.now)
+        restarted = InboxCaptureApplication(SQLiteInboxCaptureStore(self.path), self.writer)
+        text = "Заметка после перезапуска"
+
+        self.assertTrue(restarted.accepts_message(text, self.now, update_id=62))
+        result = restarted.handle_message(62, text, self.now)
+
+        self.assertIn("Записал в Notion Inbox", result)
+        self.assertEqual(self.writer.pages, [text])
+
+    def test_pending_prompt_can_be_cancelled(self):
+        self.app.handle_message(54, "/inbox", self.now)
+
+        self.assertTrue(self.app.accepts_message("отмена", self.now, update_id=55))
+        self.assertIn("отмен", self.app.handle_message(55, "отмена", self.now).casefold())
+        self.assertFalse(self.app.accepts_message("обычный текст", self.now, update_id=56))
+
+    def test_reminder_commands_are_not_captured_as_pending_inbox_content(self):
+        self.app.handle_message(57, "/inbox", self.now)
+
+        self.assertFalse(self.app.accepts_message("/reminders", self.now, update_id=58))
+
     def test_uncertain_capture_is_never_automatically_retried(self):
         self.writer.error = TimeoutError("ack lost")
         first = self.app.handle_message(46, "/inbox проверить идею", self.now)
@@ -78,6 +122,16 @@ class InboxTests(unittest.TestCase):
             "Проверь Inbox", restarted.handle_message(49, "/inbox Зависшая запись", self.now)
         )
         self.assertEqual(self.writer.pages, [])
+
+    def test_replayed_plain_message_returns_saved_capture_without_duplicate(self):
+        self.app.handle_message(59, "/inbox", self.now)
+        text = "Записать идею"
+        first = self.app.handle_message(60, text, self.now)
+        self.assertTrue(self.app.accepts_message(text, self.now, update_id=60))
+        replay = self.app.handle_message(60, text, self.now)
+
+        self.assertEqual(first, replay)
+        self.assertEqual(self.writer.pages, [text])
 
     def test_capture_database_is_private(self):
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)

@@ -64,6 +64,7 @@ class TelegramCommands:
                 and not message.get("from", {}).get("is_bot", False)
             )
             if authorized:
+                now = self.now()
                 raw_text = str(message.get("text") or "")
                 routed_text = _KEYBOARD_COMMANDS.get(raw_text, raw_text)
                 command = routed_text.split(maxsplit=1)
@@ -71,13 +72,14 @@ class TelegramCommands:
                 reminder_request = bool(
                     self.reminders and self.reminders.accepts_message(routed_text)
                 )
-                inbox_request = bool(self.inbox and self.inbox.accepts_message(routed_text))
+                inbox_request = bool(
+                    self.inbox and self.inbox.accepts_message(routed_text, now, update_id)
+                )
                 if (
                     command_name in ("/week", "/month", "/start", "/help", "/status")
                     or reminder_request
                     or inbox_request
                 ):
-                    now = self.now()
                     key = f"command:{update_id}"
                     if self.delivery.needs_delivery(key, now):
                         existing = self.delivery.existing_text(key)
@@ -97,10 +99,10 @@ class TelegramCommands:
                             )
                         elif command_name == "/status":
                             text = self.status()
-                        elif inbox_request and self.inbox:
-                            text = self.inbox.handle_message(update_id, routed_text, now) or ""
                         elif reminder_request and self.reminders:
                             text = self.reminders.handle_message(update_id, routed_text, now) or ""
+                        elif inbox_request and self.inbox:
+                            text = self.inbox.handle_message(update_id, routed_text, now) or ""
                         else:
                             text = (
                                 "DONTANELLO\n\n"

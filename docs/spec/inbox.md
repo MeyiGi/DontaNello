@@ -1,6 +1,7 @@
 # Notion Inbox capture
 
 - The configured private Telegram chat can save an idea or note to the configured Notion Inbox data source using `/inbox <text>` or natural phrases such as «Напиши в инбокс: хочу узнать, что такое аффинный шифр».
+- The Inbox keyboard button starts a capture prompt. The next non-command message is saved as the note and receives an explicit confirmation with the Notion link. The prompt expires after 10 minutes; «отмена» cancels it. Reminder phrases and slash commands keep their normal behavior while a prompt is pending.
 - Each capture creates one Inbox database item using its configured title property. A successful response includes the saved title and Notion page link.
 - The Inbox data source and title property are configured separately from task, work, and report sources. Inbox capture never reads or writes work databases.
 - Authorization is checked before parsing a capture or calling Notion; groups and other users receive no Inbox capability.

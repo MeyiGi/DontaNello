@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from .models import InboxWriteRejected
+from .models import InboxCapture, InboxWriteRejected
 from .ports import InboxCaptureStore, InboxWriter
 
+PROMPT_TTL = timedelta(minutes=10)
+_CANCEL_WORDS = {"отмена", "cancel"}
 _INBOX_REQUEST = re.compile(
     r"^\s*(?:/inbox(?:@\w+)?|(?:напиши|запиши|добавь|сохрани)\s+"
     r"(?:(?:мне|это|идею|заметку)\s+)?в\s+(?:мой\s+)?инбокс)"
@@ -34,17 +36,44 @@ class InboxCaptureApplication:
     def recover_inflight(self) -> None:
         self.store.recover_inflight()
 
-    def accepts_message(self, text: str) -> bool:
-        return parse_inbox_request(text) is not None
+    def accepts_message(self, text: str, now: datetime, update_id: int | None = None) -> bool:
+        if update_id is not None and self.store.has_capture(update_id):
+            return True
+        if parse_inbox_request(text) is not None:
+            return True
+        clean_text = text.strip()
+        return bool(
+            clean_text
+            and not clean_text.startswith("/")
+            and self.store.has_pending_prompt(now.timestamp())
+        )
 
     def handle_message(self, update_id: int, text: str, now: datetime) -> str | None:
         title = parse_inbox_request(text)
+        if title == "":
+            self.store.set_pending_prompt((now + PROMPT_TTL).timestamp())
+            return (
+                "Отправь следующим сообщением текст — сохраню его в Inbox и пришлю ссылку. "
+                "Напиши «отмена», если передумаешь."
+            )
         if title is None:
-            return None
-        if not title:
-            return "Напиши, что сохранить: «В инбокс: хочу узнать, что такое аффинный шифр»."
+            if text.strip().casefold() in _CANCEL_WORDS:
+                if self.store.has_pending_prompt(now.timestamp()):
+                    self.store.clear_pending_prompt()
+                    return "Хорошо, ввод заметки в Inbox отменён."
+                return None
+            title = re.sub(r"\s+", " ", text).strip()
+            capture = self.store.claim_pending(update_id, title, now.isoformat(), now.timestamp())
+            if capture is None:
+                return None
+        else:
+            self.store.clear_pending_prompt()
+            capture = self.store.claim(update_id, title, now.isoformat())
+        return self._write_capture(capture)
 
-        capture = self.store.claim(update_id, title, now.isoformat())
+    def _write_capture(self, capture: InboxCapture) -> str:
+        update_id = capture.update_id
+        title = capture.title
         if capture.status == "created":
             return _created_message(capture.title, capture.page_url)
         if capture.status == "uncertain":

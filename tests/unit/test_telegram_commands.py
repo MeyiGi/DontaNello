@@ -31,7 +31,7 @@ class FakeReminders:
     def __init__(self):
         self.calls = []
 
-    def accepts_message(self, text):
+    def accepts_message(self, text, now=None, update_id=None):
         return text.startswith(("/tasksettings", "/reminders")) or text.startswith("Напомни")
 
     def handle_message(self, update_id, text, now):
@@ -42,12 +42,23 @@ class FakeReminders:
 class FakeInbox:
     def __init__(self):
         self.calls = []
+        self.pending = False
 
-    def accepts_message(self, text):
-        return text.startswith("/inbox") or text.startswith("Напиши в инбокс")
+    def accepts_message(self, text, now, update_id=None):
+        return (
+            text.startswith("/inbox")
+            or text.startswith("Напиши в инбокс")
+            or (self.pending and bool(text.strip()) and not text.startswith("/"))
+        )
 
     def handle_message(self, update_id, text, now):
         self.calls.append((update_id, text, now))
+        if text == "/inbox":
+            self.pending = True
+            return "Send note"
+        if self.pending and not text.startswith("/"):
+            self.pending = False
+            return "saved note"
         return "inbox response"
 
 
@@ -216,6 +227,31 @@ class TelegramCommandTests(unittest.TestCase):
         self.assertEqual(len(inbox.calls), 1)
         self.assertEqual(inbox.calls[0][0:2], (1, "Напиши в инбокс хочу узнать, что такое шифр"))
         self.assertEqual(self.telegram.sent[0][1], "inbox response")
+
+    def test_inbox_button_accepts_next_plain_message_and_returns_capture_confirmation(self):
+        inbox = FakeInbox()
+        self.commands.inbox = inbox
+        self.telegram.items = [update(1, command="📥 Inbox"), update(2, command="Аффинный шифр")]
+
+        self.commands.run()
+
+        self.assertEqual([item[1] for item in inbox.calls], ["/inbox", "Аффинный шифр"])
+        self.assertEqual([item[1] for item in self.telegram.sent], ["Send note", "saved note"])
+
+    def test_reminder_phrase_keeps_priority_while_inbox_prompt_is_pending(self):
+        inbox = FakeInbox()
+        reminders = FakeReminders()
+        self.commands.inbox = inbox
+        self.commands.reminders = reminders
+        self.telegram.items = [
+            update(1, command="📥 Inbox"),
+            update(2, command="Напомни завтра позвонить"),
+        ]
+
+        self.commands.run()
+
+        self.assertEqual([item[1] for item in reminders.calls], ["Напомни завтра позвонить"])
+        self.assertEqual(self.telegram.sent[-1][1], "reminder response")
 
     def test_help_menu_does_not_expose_work_commands(self):
         self.telegram.items = [update(1, command="/help")]
