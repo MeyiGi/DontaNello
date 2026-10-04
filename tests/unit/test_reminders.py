@@ -8,6 +8,7 @@ from dontanello.modules.reminders.adapters.sqlite import SQLiteReminderRepositor
 from dontanello.modules.reminders.application import (
     ReminderApplication,
     render_task_digest,
+    render_task_overview,
     select_due_tasks,
 )
 from dontanello.modules.reminders.models import (
@@ -105,6 +106,44 @@ class ReminderTests(unittest.TestCase):
             '<a href="https://notion.test/a?x=1&amp;y=2">Прочитать &lt;тему&gt; &amp; сдать</a>',
             text,
         )
+
+    def test_task_overview_shows_open_deadlines_as_plain_clickable_links(self):
+        tasks = (
+            TaskDeadline(
+                "late",
+                "Отправить форму",
+                date(2026, 10, 2),
+                "https://notion.test/late",
+            ),
+            TaskDeadline("today", "Проверить презентацию", self.now.date()),
+            TaskDeadline(
+                "soon",
+                "Сдать конспект",
+                date(2026, 10, 7),
+                "https://notion.test/soon",
+            ),
+            TaskDeadline("later", "Позже", date(2026, 10, 12)),
+            TaskDeadline("done", "Выполнена", self.now.date(), completed=True),
+        )
+
+        text = render_task_overview(tasks, self.now.date(), 7)
+
+        self.assertIn("Просрочено · 1", text)
+        self.assertIn("Сегодня · 1", text)
+        self.assertIn("Ближайшие 7 дней · 1", text)
+        self.assertIn("https://notion.test/late", text)
+        self.assertIn("https://notion.test/soon", text)
+        self.assertNotIn("Позже", text)
+        self.assertNotIn("Выполнена", text)
+        self.assertNotIn("<a ", text)
+
+    def test_task_overview_explains_when_no_tasks_have_deadlines(self):
+        self.source.values = ()
+
+        text = self.app.handle_message(1, "/tasks", self.now)
+
+        self.assertIn("задач с дедлайном нет", text)
+        self.assertEqual(self.source.calls, 1)
 
     def test_digest_runs_once_after_configured_time_on_selected_weekday(self):
         self.repository.save_digest_settings(

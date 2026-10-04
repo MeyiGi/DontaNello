@@ -7,6 +7,7 @@
 - Default schedule is daily at 06:00 in the configured user timezone, with a 7-day horizon. The user can change it in Telegram to every day or selected weekdays, change the local time and horizon, and turn the digest on/off.
 - A horizon of zero means show overdue and due-today tasks, with no advance-warning days. A digest with no matching tasks is not sent.
 - Send at most one digest per local calendar date. Persist the content before sending; retries reuse it. Do not blindly retry an uncertain Telegram send.
+- The personal keyboard's “Мои задачи” action immediately shows overdue tasks, tasks due today, and upcoming tasks through the configured horizon. It uses the same exclusions and ordering as the scheduled digest, but still works when scheduled notifications are disabled. If there are no matching tasks, explain that the deadline list is empty.
 
 ## Personal one-time reminders
 
@@ -19,7 +20,7 @@
 ## Authorization and configuration
 
 - Personal task access, settings, reminder creation, listing, cancellation, and delivery are restricted to the configured private Telegram chat. Authorization is checked before any Notion reads or reminder actions. Groups receive none of these capabilities.
-- A persistent private-chat reply keyboard exposes weekly/monthly reviews, Inbox, reminders, deadline settings, and status. Its labels route to the same application use cases as the corresponding commands. It never includes work-only actions. Natural-language reminder and Inbox capture remain available without opening a menu.
+- A persistent private-chat reply keyboard exposes weekly/monthly reviews, the task overview, Inbox, reminders, deadline settings, and status. Its labels route to the same application use cases as the corresponding commands. It never includes work-only actions. Natural-language reminder and Inbox capture remain available without opening a menu.
 - Telegram message intake uses long polling so new button presses and messages are handled as soon as Telegram delivers them, rather than waiting for a multi-second polling interval. Polling remains isolated from scheduled jobs.
 - Fresh-install defaults are supplied by configuration; subsequent settings live in the reminders module's durable state. The keyboard offers direct access to the settings view; deeper settings can still be entered as text.
 - Date calculations use the configured timezone. Notion and Telegram SDK details stay in adapters; scheduling and parsing rules stay in the reminder capability.

@@ -90,6 +90,38 @@ def render_task_digest(tasks: tuple[TaskDeadline, ...], today: date, days_ahead:
     return "\n".join(lines)
 
 
+def render_task_overview(tasks: tuple[TaskDeadline, ...], today: date, days_ahead: int) -> str:
+    selected = select_due_tasks(tasks, today, days_ahead)
+    if not selected:
+        return f"На ближайшие {days_ahead} дней задач с дедлайном нет."
+
+    overdue = [task for task in selected if task.due_date < today]
+    due_today = [task for task in selected if task.due_date == today]
+    upcoming = [task for task in selected if task.due_date > today]
+    lines = [f"📋 Мои задачи · {today:%d.%m.%Y}"]
+    if overdue:
+        lines.extend(("", f"🔴 Просрочено · {len(overdue)}"))
+        for task in overdue:
+            late = (today - task.due_date).days
+            lines.append(f"• {task.title} — просрочена на {late} {_day_word(late)}")
+            if task.url:
+                lines.append(f"  {task.url}")
+    if due_today:
+        lines.extend(("", f"🟠 Сегодня · {len(due_today)}"))
+        for task in due_today:
+            lines.append(f"• {task.title}")
+            if task.url:
+                lines.append(f"  {task.url}")
+    if upcoming:
+        lines.extend(("", f"🟡 Ближайшие {days_ahead} дней · {len(upcoming)}"))
+        for task in upcoming:
+            left = (task.due_date - today).days
+            lines.append(f"• {task.title} — {task.due_date:%d.%m} · через {left} {_day_word(left)}")
+            if task.url:
+                lines.append(f"  {task.url}")
+    return "\n".join(lines)
+
+
 class ReminderApplication:
     def __init__(
         self,
@@ -112,6 +144,7 @@ class ReminderApplication:
         command = text.strip().split(maxsplit=1)
         name = command[0].split("@", 1)[0].casefold() if command else ""
         return name in {
+            "/tasks",
             "/tasksettings",
             "/reminders",
             "/cancelreminder",
@@ -121,6 +154,8 @@ class ReminderApplication:
     def handle_message(self, update_id: int, text: str, now: datetime) -> str | None:
         command = text.strip().split(maxsplit=1)
         command_name = command[0].split("@", 1)[0].casefold() if command else ""
+        if command_name == "/tasks":
+            return self.task_overview(now)
         if command_name == "/tasksettings":
             return self._task_settings("" if len(command) == 1 else command[1])
         if command_name == "/reminders":
@@ -140,6 +175,10 @@ class ReminderApplication:
         reminder = self.repository.create_personal(update_id, result.text, result.due_at, now)
         local_due = reminder.due_at.astimezone(now.tzinfo)
         return f"🔔 Напомню #{reminder.id}: {reminder.text}\n{local_due:%d.%m.%Y в %H:%M}.\nОтменить: `/cancelreminder {reminder.id}`"
+
+    def task_overview(self, now: datetime) -> str:
+        settings = self.repository.digest_settings(self.defaults)
+        return render_task_overview(self.task_source.tasks(), now.date(), settings.days_ahead)
 
     def run_task_digest(self, now: datetime) -> int:
         settings = self.repository.digest_settings(self.defaults)

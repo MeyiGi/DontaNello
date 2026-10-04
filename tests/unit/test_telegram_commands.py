@@ -32,7 +32,9 @@ class FakeReminders:
         self.calls = []
 
     def accepts_message(self, text, now=None, update_id=None):
-        return text.startswith(("/tasksettings", "/reminders")) or text.startswith("Напомни")
+        return text.startswith(("/tasks", "/tasksettings", "/reminders")) or text.startswith(
+            "Напомни"
+        )
 
     def handle_message(self, update_id, text, now):
         self.calls.append((update_id, text, now))
@@ -121,18 +123,20 @@ class TelegramCommandTests(unittest.TestCase):
         self.telegram.items = [
             update(1, command="📈 Неделя"),
             update(2, command="📆 Месяц"),
-            update(3, command="📥 Inbox"),
-            update(4, command="⏰ Напоминания"),
-            update(5, command="⚙️ Настройки дедлайнов"),
-            update(6, command="ℹ️ Статус"),
+            update(3, command="📋 Мои задачи"),
+            update(4, command="📥 Inbox"),
+            update(5, command="⏰ Напоминания"),
+            update(6, command="⚙️ Настройки дедлайнов"),
+            update(7, command="ℹ️ Статус"),
         ]
 
         self.commands.run()
 
         self.assertEqual(len(self.periods), 2)
+        self.assertEqual(reminders.calls[0][1], "/tasks")
         self.assertEqual(inbox.calls[0][1], "/inbox")
-        self.assertEqual(reminders.calls[0][1], "/reminders")
-        self.assertEqual(reminders.calls[1][1], "/tasksettings")
+        self.assertEqual(reminders.calls[1][1], "/reminders")
+        self.assertEqual(reminders.calls[2][1], "/tasksettings")
         self.assertEqual(self.telegram.sent[-1][1], "status")
 
     def test_personal_keyboard_has_no_work_actions(self):
@@ -142,6 +146,7 @@ class TelegramCommandTests(unittest.TestCase):
             [
                 "📈 Неделя",
                 "📆 Месяц",
+                "📋 Мои задачи",
                 "📥 Inbox",
                 "⏰ Напоминания",
                 "⚙️ Настройки дедлайнов",
