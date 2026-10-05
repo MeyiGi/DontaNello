@@ -94,6 +94,21 @@ class CalendarPlanningTests(unittest.TestCase):
         self.assertIn("сегодня", response.text)
         self.assertEqual(self.calendar.created, {})
 
+    def test_duration_written_as_words_is_recognized_in_full_request(self):
+        cases = (
+            ("сегодня хочу позаниматься инженерной экономикой час", "1 ч"),
+            ("сегодня хочу позаниматься инженерной экономикой один час", "1 ч"),
+            ("сегодня хочу позаниматься инженерной экономикой полчаса", "30 мин"),
+            ("сегодня хочу позаниматься инженерной экономикой полтора часа", "1 ч 30 мин"),
+        )
+
+        for update_id, (text, duration) in enumerate(cases, start=80):
+            with self.subTest(text=text):
+                response = self.application.handle_message(update_id, text, self.now)
+                self.assertIn(f"Инженерной экономикой — {duration}", response.text)
+                self.assertNotIn("На сколько времени", response.text)
+                self.assertEqual(self.calendar.created, {})
+
     def test_request_without_duration_asks_and_remembers_context_until_answer(self):
         text = "Хочу завтра позаниматься информационной безопасностью"
 
@@ -139,8 +154,15 @@ class CalendarPlanningTests(unittest.TestCase):
         response = self.application.handle_message(2, "сегодня 1 час почитать", self.now)
         add_button = response.button_rows[0][0]
         before_confirmation_reads = self.calendar.reads
-        created = self.application.handle_callback(add_button.callback_data, self.now)
+        progress = []
+        created = self.application.handle_callback(
+            add_button.callback_data, self.now, on_progress=progress.append
+        )
         self.assertEqual(self.calendar.reads, before_confirmation_reads + 1)
+        self.assertEqual(
+            progress,
+            ["✅ Слот свободен. Создаю событие в Google Calendar…"],
+        )
         self.assertIn("✅ Добавил", created.text)
         self.assertEqual(len(self.calendar.created), 1)
         self.assertTrue(created.button_rows)

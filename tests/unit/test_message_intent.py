@@ -12,8 +12,8 @@ class FakeGroq:
         self.response = response
         self.calls = []
 
-    def complete(self, system, user, *, max_output_tokens=None):
-        self.calls.append((system, json.loads(user), max_output_tokens))
+    def complete(self, system, user, *, max_output_tokens=None, reasoning_effort="medium"):
+        self.calls.append((system, json.loads(user), max_output_tokens, reasoning_effort))
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
@@ -48,7 +48,7 @@ class MessageIntentTests(unittest.TestCase):
             intent.normalized_text, "Хочу позаниматься информационной безопасностью 09.10"
         )
         self.assertTrue(client.calls[0][1]["inbox_prompt_pending"])
-        self.assertEqual(client.calls[0][2], 300)
+        self.assertEqual(client.calls[0][2:], (900, "low"))
 
     def test_undated_focus_request_defaults_to_today_for_calendar(self):
         client = FakeGroq(
@@ -73,6 +73,9 @@ class MessageIntentTests(unittest.TestCase):
         self.assertEqual(intent.destination, "calendar")
         self.assertIn("treat it as today", client.calls[0][0])
         self.assertIn("План хочу позаниматься безопасностью 1.5 часа", client.calls[0][0])
+        self.assertIn("инженерной экономикой час", client.calls[0][0])
+        self.assertIn("xfcf", client.calls[0][0])
+        self.assertIn("литкод", client.calls[0][0])
         self.assertEqual(client.calls[0][1]["local_datetime"], self.now.isoformat())
         self.assertIn("сегодня", intent.normalized_text.casefold())
 

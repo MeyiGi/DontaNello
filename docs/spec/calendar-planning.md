@@ -6,12 +6,15 @@ DontaNello accepts natural-language requests to reserve focused time in the owne
 
 - The configured Google Calendar is the source of truth for busy time. Do not maintain a separate weekly schedule.
 - The shared Groq message-intent interpreter classifies ordinary Telegram text and may normalize calendar wording. The calendar capability then parses dates, durations, and time ranges deterministically when possible; its Groq extraction fallback handles otherwise clear calendar requests that still need structure. Model output never creates an event directly.
+- Common Russian duration forms are supported in full requests, including a bare «час» (60 minutes), «полчаса» (30 minutes), and «полтора часа» (90 minutes), as well as numeric hour/minute forms.
 - If the user requests a focus activity and gives a duration without a day, plan against today in the configured timezone. Keep the existing proposal and confirmation flow; do not create an event automatically.
 - If a dated activity is clear but duration is missing, ask for the duration instead of returning a generic parse failure. Keep that intent across process restarts for 30 minutes; accept a duration-only reply or explicit cancellation, then continue with the normal calendar proposal and confirmation flow. Do not create an event while asking for clarification.
 - Use the configured timezone (default `Asia/Bishkek`), planning window (default 08:00–22:00), and buffer (default 15 minutes) around existing events.
 - Suggest no more than three free options, preserving time for the rest of the day where possible. If the requested fixed time conflicts or is outside the planning window, explain why and offer free options when available.
 - The private Telegram keyboard's “Свободное время” action shows all free periods remaining today within the configured planning window, including the configured event buffer. Inline controls let the user inspect adjacent days or return to today. Viewing availability is read-only and never creates a calendar event.
 - Suggestions are proposals only. Create a one-time calendar event only after the user presses the confirmation button. Fetch calendar events again immediately before creation; do not silently create a conflict.
+- On confirmation, acknowledge the button immediately, replace the proposal card with live progress, and disable its buttons while checking and creating. Show the fresh conflict check and event-creation stages; remove the temporary progress card only after the durable result has been delivered. The final result retains its undo control.
+- When checking several readable calendars, query their event lists concurrently with a small fixed limit. Every calendar must still be included, and any failed read must fail closed rather than report free time.
 - A successful creation response includes an undo button. Undo deletes only the event whose private Google Calendar proposal identity matches the stored proposal.
 
 ## Persistence and failure behavior

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime, time, timedelta, tzinfo
 from typing import Any, Sequence
@@ -181,7 +182,12 @@ class CalendarPlanningApplication:
         self._save_new_proposal(proposal, completing_pending)
         return self._proposal_response(proposal, now)
 
-    def handle_callback(self, data: str, now: datetime) -> PlannerResponse:
+    def handle_callback(
+        self,
+        data: str,
+        now: datetime,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> PlannerResponse:
         parts = data.split(":")
         if len(parts) == 2 and parts[0] == "a":
             try:
@@ -221,7 +227,7 @@ class CalendarPlanningApplication:
             proposal = self._save(proposal, selected_index=index)
             return self._proposal_response(proposal, now)
         if action == "add":
-            return self._add(proposal, now)
+            return self._add(proposal, now, on_progress)
         if action == "undo":
             return self._undo(proposal)
         return PlannerResponse("Не понял действие этой кнопки.")
@@ -254,7 +260,12 @@ class CalendarPlanningApplication:
             rows.append((InlineButton("Сегодня", f"a:{now.date().isoformat()}"),))
         return PlannerResponse("\n".join(lines), tuple(rows))
 
-    def _add(self, proposal: PlanProposal, now: datetime) -> PlannerResponse:
+    def _add(
+        self,
+        proposal: PlanProposal,
+        now: datetime,
+        on_progress: Callable[[str], None] | None = None,
+    ) -> PlannerResponse:
         if proposal.status == "created":
             return self._created_response(proposal, now)
         if proposal.status not in {"pending", "creating"} or proposal.selected_index is None:
@@ -288,6 +299,8 @@ class CalendarPlanningApplication:
 
         event_id = proposal.event_id or plan_event_id(proposal.id)
         proposal = self._save(proposal, status="creating", event_id=event_id)
+        if on_progress is not None:
+            on_progress("✅ Слот свободен. Создаю событие в Google Calendar…")
         try:
             self.calendar.create_event(
                 event_id, proposal.id, proposal.title, slot, self.timezone_name

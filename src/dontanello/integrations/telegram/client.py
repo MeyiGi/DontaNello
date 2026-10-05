@@ -56,8 +56,26 @@ class TelegramClient:
     def set_my_commands(self, commands: list[dict[str, str]]) -> None:
         self.request("setMyCommands", {"commands": commands})
 
-    def answer_callback_query(self, callback_query_id: str) -> None:
-        self.request("answerCallbackQuery", {"callback_query_id": callback_query_id})
+    def answer_callback_query(self, callback_query_id: str, text: str | None = None) -> None:
+        payload: dict[str, Any] = {"callback_query_id": callback_query_id}
+        if text:
+            payload["text"] = text
+        self.request("answerCallbackQuery", payload)
+
+    def edit_message_text(
+        self,
+        chat_id: str,
+        message_id: int,
+        text: str,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        self.request("editMessageText", payload)
+
+    def delete_message(self, chat_id: str, message_id: int) -> None:
+        self.request("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
 
     def send_message(
         self,

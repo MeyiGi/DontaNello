@@ -335,6 +335,7 @@ def build_runtime(settings: Settings) -> Runtime:
             settings.groq_planning_model,
             timeout=15,
             max_output_tokens=350,
+            api_keys=settings.groq_api_keys,
         )
         runtime.message_intent_interpreter = GroqMessageIntentInterpreter(groq_message_client)
     planning_config = settings.config.get("calendar_planning", {})

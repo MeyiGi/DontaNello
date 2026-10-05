@@ -72,10 +72,19 @@ class GroqClient:
     def model(self) -> str:
         return self._model
 
-    def complete(self, system: str, user: str, *, max_output_tokens: int | None = None) -> str:
+    def complete(
+        self,
+        system: str,
+        user: str,
+        *,
+        max_output_tokens: int | None = None,
+        reasoning_effort: str = "medium",
+    ) -> str:
         output_tokens = self._max_output_tokens if max_output_tokens is None else max_output_tokens
         if output_tokens <= 0:
             raise ValueError("max_output_tokens must be positive")
+        if reasoning_effort not in {"low", "medium", "high"}:
+            raise ValueError("reasoning_effort must be low, medium or high")
         payload = {
             "model": self._model,
             "messages": [
@@ -86,7 +95,7 @@ class GroqClient:
             "max_completion_tokens": min(output_tokens, _MAX_COMPLETION_TOKENS),
         }
         if self._model.startswith("openai/gpt-oss-"):
-            payload["reasoning_effort"] = "medium"
+            payload["reasoning_effort"] = reasoning_effort
             payload["include_reasoning"] = False
             payload["max_completion_tokens"] = min(output_tokens, _MAX_COMPLETION_TOKENS)
         response = self._request("POST", "chat/completions", payload)

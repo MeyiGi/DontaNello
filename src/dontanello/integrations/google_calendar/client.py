@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
 from pathlib import Path
+from threading import RLock
 from typing import Any
 from urllib.parse import quote
 
@@ -30,6 +32,7 @@ class GoogleCalendarClient:
         self.token_file = token_file
         self.calendar_id = calendar_id
         self._saved_token: str | None = None
+        self._credentials_lock = RLock()
 
     def authorize(self) -> None:
         try:
@@ -67,28 +70,37 @@ class GoogleCalendarClient:
             "orderBy": "startTime",
             "maxResults": "2500",
         }
+        calendar_ids = self._calendar_ids()
+        if len(calendar_ids) == 1:
+            return self._events_for_calendar(calendar_ids[0], params)
+
+        with ThreadPoolExecutor(max_workers=min(4, len(calendar_ids))) as workers:
+            batches = workers.map(
+                lambda calendar_id: self._events_for_calendar(calendar_id, params), calendar_ids
+            )
+            return tuple(event for batch in batches for event in batch)
+
+    def _events_for_calendar(
+        self, calendar_id: str, params: dict[str, str]
+    ) -> tuple[dict[str, Any], ...]:
+        page_params = dict(params)
+        path = self._calendar_path(calendar_id) + "/events"
         result: list[dict[str, Any]] = []
-        for calendar_id in self._calendar_ids():
-            page_params = dict(params)
-            path = self._calendar_path(calendar_id) + "/events"
-            while True:
-                try:
-                    page = self._request("GET", path, params=page_params)
-                except _CalendarApiError:
-                    raise GoogleCalendarRequestError(
-                        "Google Calendar events are not accessible; renew calendar access"
-                    ) from None
-                items = page.get("items", [])
-                if not isinstance(items, list):
-                    raise GoogleCalendarRequestError(
-                        "Google Calendar returned an invalid event list"
-                    )
-                result.extend(item for item in items if isinstance(item, dict))
-                page_token = page.get("nextPageToken")
-                if not page_token:
-                    break
-                page_params["pageToken"] = str(page_token)
-        return tuple(result)
+        while True:
+            try:
+                page = self._request("GET", path, params=page_params)
+            except _CalendarApiError:
+                raise GoogleCalendarRequestError(
+                    "Google Calendar events are not accessible; renew calendar access"
+                ) from None
+            items = page.get("items", [])
+            if not isinstance(items, list):
+                raise GoogleCalendarRequestError("Google Calendar returned an invalid event list")
+            result.extend(item for item in items if isinstance(item, dict))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                return tuple(result)
+            page_params["pageToken"] = str(page_token)
 
     def _calendar_ids(self) -> tuple[str, ...]:
         params = {"maxResults": "250", "minAccessRole": "reader"}
@@ -223,6 +235,10 @@ class GoogleCalendarClient:
         return result
 
     def _credentials(self) -> Any:
+        with self._credentials_lock:
+            return self._load_credentials()
+
+    def _load_credentials(self) -> Any:
         try:
             request_type = import_module("google.auth.transport.requests").Request
             credentials_type = import_module("google.oauth2.credentials").Credentials

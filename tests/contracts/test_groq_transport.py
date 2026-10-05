@@ -33,6 +33,18 @@ class GroqTransportTests(unittest.TestCase):
         self.assertFalse(payload["include_reasoning"])
         self.assertEqual(payload["max_completion_tokens"], 3000)
 
+    def test_gpt_oss_can_use_low_reasoning_and_a_task_sized_output_budget(self):
+        response = io.BytesIO(
+            b'{"choices":[{"message":{"content":"{\\"destination\\":\\"task\\"}"},"finish_reason":"stop"}]}'
+        )
+        with patch("urllib.request.urlopen", return_value=response) as urlopen:
+            GroqClient("fixture-key", "openai/gpt-oss-20b").complete(
+                "system", "user", max_output_tokens=900, reasoning_effort="low"
+            )
+        payload = json.loads(urlopen.call_args.args[0].data)
+        self.assertEqual(payload["reasoning_effort"], "low")
+        self.assertEqual(payload["max_completion_tokens"], 900)
+
     def test_completion_payload_and_bearer_header(self):
         client = GroqClient("fixture-key", "fixture-model")
         response = io.BytesIO(

@@ -301,7 +301,7 @@ class TelegramCommands:
         callback_id = str(callback.get("id", ""))
         if callback_id:
             try:
-                self.client.answer_callback_query(callback_id)
+                self.client.answer_callback_query(callback_id, "⏳ Обрабатываю…")
             except Exception:
                 # Acknowledgement is best effort; the durable action below is idempotent.
                 pass
@@ -326,13 +326,33 @@ class TelegramCommands:
             return
         text = self.delivery.existing_text(key)
         markup = self.delivery.existing_reply_markup(key)
+        data = str(callback.get("data") or "")
+        progress_message_id = _message_id(message)
+        is_calendar_action = data.startswith("p:")
+        if text is None and is_calendar_action and progress_message_id is not None:
+            action = data.split(":", 2)[-1]
+            progress_text = {
+                "add": "⏳ Перепроверяю выбранное время в Google Calendar…",
+                "more": "⏳ Обновляю свободные варианты…",
+                "undo": "⏳ Проверяю созданное событие и отменяю его…",
+            }.get(action)
+            if progress_text:
+                self._edit_callback_message(progress_message_id, progress_text)
+
+        def show_progress(progress_text: str) -> None:
+            if progress_message_id is not None:
+                self._edit_callback_message(progress_message_id, progress_text)
+
         if text is None:
-            data = str(callback.get("data") or "")
             response: PlannerResponse | TaskResponse
             if data.startswith("t:") and self.task_capture:
                 response = self.task_capture.handle_callback(data)
             elif self.planning:
-                response = self.planning.handle_callback(data, now)
+                response = self.planning.handle_callback(
+                    data,
+                    now,
+                    on_progress=show_progress if data.endswith(":add") else None,
+                )
             else:
                 return
             text = response.text
@@ -340,6 +360,31 @@ class TelegramCommands:
         self.delivery.deliver(key, text, now, reply_markup=markup)
         if not self.delivery.is_terminal(key):
             raise RuntimeError("Queued calendar response awaiting delivery retry")
+        if is_calendar_action and progress_message_id is not None:
+            try:
+                self.client.delete_message(self.chat_id, progress_message_id)
+            except Exception:
+                # The durable response was delivered; an obsolete progress card is harmless.
+                pass
+
+    def _edit_callback_message(self, message_id: int, text: str) -> None:
+        try:
+            self.client.edit_message_text(
+                self.chat_id,
+                message_id,
+                text,
+                reply_markup={"inline_keyboard": []},
+            )
+        except Exception:
+            # Progress UI must never block an authorized calendar operation.
+            pass
+
+
+def _message_id(message: object) -> int | None:
+    if not isinstance(message, dict):
+        return None
+    value = message.get("message_id")
+    return value if isinstance(value, int) and value > 0 else None
 
 
 def _telegram_markup(response: PlannerResponse | TaskResponse | None) -> dict[str, Any] | None:

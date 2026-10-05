@@ -20,6 +20,8 @@ class FakeTelegram:
         self.parse_modes = []
         self.markups = []
         self.answered_callbacks = []
+        self.edited_messages = []
+        self.deleted_messages = []
         self.error = None
 
     def updates(self, offset):
@@ -33,8 +35,14 @@ class FakeTelegram:
         self.markups.append(reply_markup)
         return len(self.sent)
 
-    def answer_callback_query(self, callback_query_id):
-        self.answered_callbacks.append(callback_query_id)
+    def answer_callback_query(self, callback_query_id, text=None):
+        self.answered_callbacks.append((callback_query_id, text))
+
+    def edit_message_text(self, chat_id, message_id, text, reply_markup=None):
+        self.edited_messages.append((chat_id, message_id, text, reply_markup))
+
+    def delete_message(self, chat_id, message_id):
+        self.deleted_messages.append((chat_id, message_id))
 
 
 class FakeReminders:
@@ -107,8 +115,10 @@ class FakePlanning:
             ((InlineButton("Add", "p:proposal:add"),),),
         )
 
-    def handle_callback(self, data, now):
+    def handle_callback(self, data, now, on_progress=None):
         self.callback_calls.append(data)
+        if on_progress:
+            on_progress("✅ Слот свободен. Создаю событие в Google Calendar…")
         return PlannerResponse("created")
 
     def show_availability(self, day, now):
@@ -183,7 +193,7 @@ def callback_update(
             "from": {"id": user_id, "is_bot": False},
             "chat_instance": "instance",
             "data": data,
-            "message": {"chat": {"id": chat_id, "type": kind}},
+            "message": {"message_id": identifier, "chat": {"id": chat_id, "type": kind}},
         },
     }
 
@@ -445,8 +455,20 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
 
         self.assertEqual(planning.callback_calls, ["p:proposal:add"])
-        self.assertEqual(self.telegram.answered_callbacks, ["denied", "allowed"])
+        self.assertEqual(
+            self.telegram.answered_callbacks,
+            [("denied", "⏳ Обрабатываю…"), ("allowed", "⏳ Обрабатываю…")],
+        )
         self.assertEqual(self.telegram.sent[-1][1], "created")
+        self.assertEqual(
+            [text for _, _, text, _ in self.telegram.edited_messages],
+            [
+                "⏳ Перепроверяю выбранное время в Google Calendar…",
+                "✅ Слот свободен. Создаю событие в Google Calendar…",
+            ],
+        )
+        self.assertEqual(self.telegram.edited_messages[0][3], {"inline_keyboard": []})
+        self.assertEqual(self.telegram.deleted_messages, [("123", 2)])
         self.assertEqual(self.cursor.load(), 3)
 
     def test_help_menu_groups_personal_features_without_work_commands(self):

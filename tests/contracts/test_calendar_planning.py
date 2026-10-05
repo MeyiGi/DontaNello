@@ -1,5 +1,6 @@
 import stat
 import tempfile
+import threading
 import unittest
 from datetime import date, datetime
 from pathlib import Path
@@ -43,18 +44,40 @@ class CalendarPlanningAdapterTests(unittest.TestCase):
 
         self.assertEqual(len(events), 2)
         self.assertEqual(
-            [path for _, path, _ in calls],
-            [
-                "/users/me/calendarList",
-                "/users/me/calendarList",
-                "/calendars/primary/events",
-                "/calendars/university/events",
-            ],
+            [path for _, path, _ in calls[:2]],
+            ["/users/me/calendarList", "/users/me/calendarList"],
+        )
+        self.assertEqual(
+            {path for _, path, _ in calls[2:]},
+            {"/calendars/primary/events", "/calendars/university/events"},
         )
         self.assertEqual(calls[0][2]["minAccessRole"], "reader")
         self.assertIn(
             "https://www.googleapis.com/auth/calendar.calendarlist.readonly", CALENDAR_SCOPES
         )
+
+    def test_event_reads_from_multiple_calendars_run_concurrently(self):
+        client = GoogleCalendarClient(Path("oauth.json"), Path("token.json"))
+        both_calendars_reading = threading.Barrier(2)
+
+        def request(method, path, params=None, body=None):
+            if path == "/users/me/calendarList":
+                return {
+                    "items": [
+                        {"id": "primary", "accessRole": "owner"},
+                        {"id": "university", "accessRole": "reader"},
+                    ]
+                }
+            both_calendars_reading.wait(timeout=2)
+            return {"items": [{"id": path.split("/")[2]}]}
+
+        client._request = request
+
+        events = client.events(
+            "2026-10-05T00:00:00+06:00", "2026-10-06T00:00:00+06:00", "Asia/Bishkek"
+        )
+
+        self.assertEqual(len(events), 2)
 
     def test_missing_calendar_list_access_fails_closed_instead_of_reporting_free_time(self):
         client = GoogleCalendarClient(Path("oauth.json"), Path("token.json"))

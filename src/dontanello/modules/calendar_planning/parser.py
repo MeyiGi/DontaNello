@@ -10,7 +10,8 @@ from .models import PlanRequest, TimeSlot
 _RANGE = re.compile(r"(?<!\d)(\d{1,2}):(\d{2})\s*[-–—]\s*(\d{1,2}):(\d{2})(?!\d)")
 _DATE = re.compile(r"(?<!\d)(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?(?!\d)")
 _DURATION = re.compile(
-    r"(?<!\w)(\d+(?:[.,]\d+)?)\s*(?:час(?:а|ов)?|ч\.?|h|мин(?:ут(?:ы|у)?)?)(?!\w)",
+    r"(?<!\w)(?:(\d+(?:[.,]\d+)?)\s*(час(?:а|ов|ик)?|ч\.?|h|мин(?:ут(?:ы|у)?)?)"
+    r"|(полтора\s+часа|пол\s+часа|полчаса|один\s+час(?:ик)?|час(?:ик)?|часа))(?!\w)",
     re.IGNORECASE,
 )
 _PLAN_INTENT = re.compile(
@@ -64,13 +65,7 @@ def parse_plan_request(text: str, now: datetime) -> PlanRequest | None:
         minutes = int((end_dt - start_dt).total_seconds() // 60)
         fixed_slot = TimeSlot(start_dt, end_dt)
     elif duration_match:
-        raw_duration = duration_match[1].replace(",", ".")
-        try:
-            amount = float(raw_duration)
-        except ValueError:
-            return None
-        unit = duration_match[0].casefold()
-        minutes = int(amount if "мин" in unit else amount * 60)
+        minutes = _duration_minutes(duration_match)
         fixed_slot = None
     else:
         return None
@@ -103,23 +98,28 @@ def parse_plan_intent(text: str, now: datetime) -> tuple[date, str] | None:
 def parse_duration_answer(text: str) -> int | None:
     """Parse a short duration reply to a pending planning question."""
     clean = re.sub(r"^(?:на|примерно|около)\s+", "", text.strip(), flags=re.IGNORECASE)
-    lowered = clean.casefold()
-    if lowered in {"полчаса", "пол часа"}:
-        return 30
-    if lowered in {"полтора часа", "полтора часика"}:
-        return 90
-    if lowered in {"час", "часа", "один час", "один часик"}:
-        return 60
     match = _DURATION.fullmatch(clean)
     if not match:
         return None
+
+    minutes = _duration_minutes(match)
+    return minutes if 15 <= minutes <= 480 else None
+
+
+def _duration_minutes(match: re.Match[str]) -> int:
+    if match[1] is None:
+        word_duration = match[3].casefold().replace("ё", "е")
+        if word_duration.startswith("полтора"):
+            return 90
+        if word_duration.startswith("пол ") or word_duration == "полчаса":
+            return 30
+        return 60
     try:
         amount = float(match[1].replace(",", "."))
     except ValueError:
-        return None
-    unit = match[0].casefold()
-    minutes = int(amount if "мин" in unit else amount * 60)
-    return minutes if 15 <= minutes <= 480 else None
+        return 0
+    unit = match[2].casefold()
+    return int(amount if "мин" in unit else amount * 60)
 
 
 def _parse_day(text: str, today: date) -> date | None:

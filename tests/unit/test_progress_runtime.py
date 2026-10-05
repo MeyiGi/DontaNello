@@ -11,6 +11,30 @@ from dontanello.platform.settings import Settings
 
 
 class ProgressRuntimeTests(unittest.TestCase):
+    def test_message_intent_uses_the_configured_groq_key_pool(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Settings(
+                root=Path(directory),
+                notion_token="test-notion",
+                telegram_token="",
+                timezone=ZoneInfo("Asia/Bishkek"),
+                poll_seconds=30,
+                config={"completion_sources": [], "reports": {"sources": []}},
+                groq_planning_api_key="planning-primary",
+                groq_api_keys=("primary", "fallback"),
+            )
+            with patch("dontanello.bootstrap.GroqClient") as client_factory:
+                runtime = build_runtime(settings)
+
+        client_factory.assert_called_once_with(
+            "planning-primary",
+            "openai/gpt-oss-20b",
+            timeout=15,
+            max_output_tokens=350,
+            api_keys=("primary", "fallback"),
+        )
+        self.assertIsNotNone(runtime.message_intent_interpreter)
+
     def test_cli_telegram_and_scheduler_share_scoped_progress_application(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = Settings(

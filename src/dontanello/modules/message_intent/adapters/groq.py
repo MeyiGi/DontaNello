@@ -44,6 +44,13 @@ Short or misspelled wording can still have clear intent. Words like «План»
 prefixes, not a separate destination. Examples:
 - «План хочу позаниматься безопасностью 1.5 часа» means calendar for today.
 - «Хочу позаниматься безопасностью 1.5 часа завтра» means calendar for tomorrow.
+- «Хочу позаниматься инженерной экономикой час» means calendar for today for one hour; preserve
+  this duration as «час» or normalize it to «1 час».
+- Recover obvious typos and English-keyboard-layout Russian words when context makes them clear:
+  «хочу еще позаниматься сетями управления данными 1.5 xfcf» means a calendar request for today
+  for 1.5 hours; normalize «xfcf» to «часа» and preserve the study topic.
+- «Добавь задачу решить литкод задачу до завтра» means task with title «Решить задачу LeetCode»
+  and an explicit deadline of tomorrow.
 - «Хочу позаниматься безопасностью завтра» means calendar with duration left unspecified.
 Use confidence high when one of these actions is clear, even without the exact phrase «добавь в
 календарь»."""
@@ -73,7 +80,12 @@ class GroqMessageIntentInterpreter:
             ensure_ascii=False,
         )
         try:
-            response = self.client.complete(_SYSTEM, prompt, max_output_tokens=300)
+            response = self.client.complete(
+                _SYSTEM,
+                prompt,
+                max_output_tokens=900,
+                reasoning_effort="low",
+            )
             value = json.loads(response)
         except (RuntimeError, ValueError):
             raise MessageIntentUnavailable("Groq intent analysis is unavailable") from None

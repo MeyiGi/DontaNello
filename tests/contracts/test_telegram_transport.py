@@ -14,6 +14,40 @@ from dontanello.modules.reports.adapters.telegram import TelegramReportSender
 
 
 class TelegramTransportTests(unittest.TestCase):
+    def test_callback_acknowledgement_can_show_an_immediate_status(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=io.BytesIO(b'{"ok":true,"result":true}'),
+        ) as call:
+            TelegramClient("fixture-not-a-real-token").answer_callback_query("callback", "Working")
+        self.assertEqual(
+            json.loads(call.call_args.args[0].data),
+            {"callback_query_id": "callback", "text": "Working"},
+        )
+
+    def test_message_can_be_updated_and_removed_after_interactive_action(self):
+        client = TelegramClient("fixture-not-a-real-token")
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=lambda *_args, **_kwargs: io.BytesIO(b'{"ok":true,"result":true}'),
+        ) as call:
+            client.edit_message_text("123", 7, "Checking", {"inline_keyboard": []})
+            client.delete_message("123", 7)
+        self.assertTrue(call.call_args_list[0].args[0].full_url.endswith("/editMessageText"))
+        self.assertEqual(
+            json.loads(call.call_args_list[0].args[0].data),
+            {
+                "chat_id": "123",
+                "message_id": 7,
+                "text": "Checking",
+                "reply_markup": {"inline_keyboard": []},
+            },
+        )
+        self.assertEqual(
+            json.loads(call.call_args_list[1].args[0].data),
+            {"chat_id": "123", "message_id": 7},
+        )
+
     def test_message_is_plain_text_and_receipt_is_returned(self):
         client = TelegramClient("fixture-not-a-real-token")
         with patch(
