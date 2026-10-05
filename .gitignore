@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 state/
+secrets/
 client_secret_*.json
 *.log
 .codegraph/

@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from dontanello.entrypoints.telegram import PERSONAL_KEYBOARD, TelegramCommands
 from dontanello.modules.calendar_planning import InlineButton, PlannerResponse
-from dontanello.modules.message_intent import MessageIntent
+from dontanello.modules.message_intent import MessageIntent, MessageIntentUnavailable
 from dontanello.modules.reports import DeliveryRejected, DeliveryService, DeliveryUncertain
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -314,6 +314,19 @@ class TelegramCommandTests(unittest.TestCase):
         self.assertEqual(capture.calls[0][2].due_date, date(2026, 10, 2))
         self.assertEqual(planner.calls, [])
 
+    def test_groq_routing_failure_is_not_reported_as_unrecognized_message(self):
+        class UnavailableInterpreter:
+            def interpret(self, text, now, *, inbox_prompt_pending):
+                raise MessageIntentUnavailable("unavailable")
+
+        self.commands.message_intent = UnavailableInterpreter()
+        self.telegram.items = [update(1, command="План хочу позаниматься безопасностью")]
+
+        self.commands.run()
+
+        self.assertIn("Groq временно", self.telegram.sent[0][1])
+        self.assertIn("Ничего не записал", self.telegram.sent[0][1])
+
     def test_cursor_failure_after_delivery_does_not_send_twice(self):
         self.telegram.items = [update(1)]
         with patch.object(self.cursor, "save", side_effect=OSError("disk")):
@@ -360,16 +373,19 @@ class TelegramCommandTests(unittest.TestCase):
         self.assertEqual(reminders.calls, [])
         self.assertEqual(self.telegram.sent, [])
 
-    def test_private_reminder_command_delegates_to_reminder_application(self):
+    def test_explicit_reminder_phrase_uses_reminder_application_without_groq(self):
         reminders = FakeReminders()
         self.commands.reminders = reminders
-        phrase = "Напомни завтра позвонить"
-        self.commands.message_intent = FakeIntentInterpreter(
-            {phrase: MessageIntent("reminder", "high", normalized_text=phrase)}
-        )
+        phrase = "Напомни завтра в 9:00 показать свой проект план и фактов руководителю"
+        interpreter = FakeIntentInterpreter({})
+        self.commands.message_intent = interpreter
         self.telegram.items = [update(1, command=phrase)]
+
         self.commands.run()
+
         self.assertEqual(len(reminders.calls), 1)
+        self.assertEqual(reminders.calls[0][1], phrase)
+        self.assertEqual(interpreter.calls, [])
         self.assertIn("reminder response", self.telegram.sent[0][1])
 
     def test_calendar_request_sends_inline_confirmation_without_side_effect(self):
@@ -497,7 +513,7 @@ class TelegramCommandTests(unittest.TestCase):
 
         self.assertEqual([item[1] for item in reminders.calls], ["Напомни завтра позвонить"])
         self.assertEqual(self.telegram.sent[-1][1], "reminder response")
-        self.assertEqual(interpreter.calls[-1], (phrase, True))
+        self.assertEqual(interpreter.calls, [])
         self.assertFalse(inbox.pending)
 
     def test_calendar_message_overrides_pending_inbox_capture(self):

@@ -21,7 +21,8 @@ tests/
   contracts/            # преобразование API и хранение состояния
   architecture/         # границы импортов и отсутствие циклов
 config/settings.json    # источники и имена полей
-deploy/systemd/         # сервис автозапуска
+deploy/systemd/         # systemd service for development host
+deploy/docker/          # Docker image and Compose deployment for an always-on host
 scripts/                # вспомогательная диагностика
 docs/                   # архитектура и история решений
 state/                  # локальное состояние; исключено из Git
@@ -73,9 +74,36 @@ systemctl --user stop dontanello.service
 
 Файл `deploy/systemd/dontanello.service` можно подключить командой `systemctl --user enable --now "$PWD/deploy/systemd/dontanello.service"`. Он настроен на текущий абсолютный путь проекта и сохраняет совместимый запуск через `assistant.py`.
 
+## Запуск на отдельном компьютере через Docker
+
+На компьютере, где бот будет работать постоянно, установи Docker Engine и Compose, клонируй репозиторий и подготовь локальные данные. Каталог `state/` должен принадлежать пользователю, чей UID/GID указаны в `.env` (обычно оба равны `1000`). Не запускай одновременно этот контейнер и текущий systemd-сервис: оба будут опрашивать один Telegram-бот.
+
+```bash
+cp .env.example .env
+chmod 600 .env
+mkdir -p state secrets
+chmod 700 state secrets
+```
+
+Заполни `.env` своими действующими Telegram, Notion и Groq credentials. Укажи `DONTANELLO_UID` и `DONTANELLO_GID` из `id -u` и `id -g`, если они отличаются от `1000`. Перенеси полную папку `state/` с текущего компьютера, пока старый сервис остановлен; на целевом компьютере файлы должны принадлежать этому пользователю. Скопируй Google OAuth Desktop client JSON в `secrets/google-calendar-client.json`. Не отправляй эти файлы в Git.
+
+```bash
+docker compose --project-directory . -f deploy/docker/compose.yaml up -d --build
+docker compose --project-directory . -f deploy/docker/compose.yaml logs -f --tail=100
+```
+
+Если Google Calendar ещё не подключён или требует нового consent, на Linux выполни разовую авторизацию, затем запусти обычный сервис:
+
+```bash
+docker compose --project-directory . -f deploy/docker/compose.yaml -f deploy/docker/compose.oauth.yaml run --rm dontanello --authorize-calendar
+docker compose --project-directory . -f deploy/docker/compose.yaml up -d --build
+```
+
+После изменений кода выполни `git pull`, затем повтори `up -d --build`. Остановка: `docker compose --project-directory . -f deploy/docker/compose.yaml down`; локальные данные в `state/` останутся на месте. Подробные правила переноса и ограничения: [deployment spec](docs/spec/deployment.md).
+
 ## Настройки и Telegram
 
-Секреты лежат в `.env` с правами `600`, файл исключён из Git. Образец без секретов: `.env.example`. Базы и имена полей заданы в `config/settings.json`; рабочая база сохранена для будущих отчётов, её записи сейчас не меняются. Переменные окружения имеют приоритет над `.env`.
+Секреты лежат в `.env` с правами `600`, файл исключён из Git. Google OAuth client JSON хранится отдельно в `secrets/` с правами `600`; эта папка тоже исключена из Git. Образец без секретов: `.env.example`. Базы и имена полей заданы в `config/settings.json`; рабочая база сохранена для будущих отчётов, её записи сейчас не меняются. Переменные окружения имеют приоритет над `.env`.
 
 Для Telegram нужны `TELEGRAM_BOT_TOKEN` из @BotFather и `TELEGRAM_CHAT_ID`. `python3 assistant.py --check` проверяет бота, получателя и поля источников отчётов без отправки сообщений. Команды обрабатываются только в настроенном личном чате.
 

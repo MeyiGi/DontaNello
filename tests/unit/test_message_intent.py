@@ -3,6 +3,7 @@ import unittest
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from dontanello.modules.message_intent import MessageIntentUnavailable
 from dontanello.modules.message_intent.adapters.groq import GroqMessageIntentInterpreter
 
 
@@ -71,6 +72,7 @@ class MessageIntentTests(unittest.TestCase):
 
         self.assertEqual(intent.destination, "calendar")
         self.assertIn("treat it as today", client.calls[0][0])
+        self.assertIn("План хочу позаниматься безопасностью 1.5 часа", client.calls[0][0])
         self.assertEqual(client.calls[0][1]["local_datetime"], self.now.isoformat())
         self.assertIn("сегодня", intent.normalized_text.casefold())
 
@@ -120,11 +122,10 @@ class MessageIntentTests(unittest.TestCase):
 
     def test_rejects_invalid_or_low_quality_model_output(self):
         invalid = FakeGroq("not json")
-        self.assertIsNone(
+        with self.assertRaises(MessageIntentUnavailable):
             GroqMessageIntentInterpreter(invalid).interpret(
                 "что-то", self.now, inbox_prompt_pending=False
             )
-        )
 
         malformed = FakeGroq(
             json.dumps(
@@ -136,18 +137,16 @@ class MessageIntentTests(unittest.TestCase):
                 }
             )
         )
-        self.assertIsNone(
+        with self.assertRaises(MessageIntentUnavailable):
             GroqMessageIntentInterpreter(malformed).interpret(
                 "что-то", self.now, inbox_prompt_pending=False
             )
-        )
 
         unavailable = FakeGroq(RuntimeError("unavailable"))
-        self.assertIsNone(
+        with self.assertRaises(MessageIntentUnavailable):
             GroqMessageIntentInterpreter(unavailable).interpret(
                 "что-то", self.now, inbox_prompt_pending=False
             )
-        )
 
 
 if __name__ == "__main__":

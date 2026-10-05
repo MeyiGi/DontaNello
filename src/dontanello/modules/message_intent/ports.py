@@ -6,6 +6,10 @@ from typing import Protocol
 from .models import MessageIntent
 
 
+class MessageIntentUnavailable(RuntimeError):
+    """Groq could not provide a usable message-routing result."""
+
+
 class MessageIntentInterpreter(Protocol):
     def interpret(
         self,

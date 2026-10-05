@@ -1,5 +1,6 @@
 """Private Telegram commands delegate to the same report use cases as schedules."""
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -8,7 +9,11 @@ from typing import Any
 from dontanello.integrations.telegram.client import TelegramClient
 from dontanello.modules.calendar_planning import CalendarPlanningApplication, PlannerResponse
 from dontanello.modules.inbox import InboxCaptureApplication
-from dontanello.modules.message_intent import MessageIntent, MessageIntentInterpreter
+from dontanello.modules.message_intent import (
+    MessageIntent,
+    MessageIntentInterpreter,
+    MessageIntentUnavailable,
+)
 from dontanello.modules.reminders import ReminderApplication
 from dontanello.modules.reports import (
     DeliveryService,
@@ -18,6 +23,8 @@ from dontanello.modules.reports import (
 )
 from dontanello.modules.task_capture import TaskCaptureApplication, TaskDraft, TaskResponse
 from dontanello.platform.telegram_cursor import TelegramCursor
+
+_logger = logging.getLogger(__name__)
 
 PERSONAL_KEYBOARD = {
     "keyboard": [
@@ -86,10 +93,8 @@ class TelegramCommands:
                 natural_text = bool(routed_text.strip()) and not routed_text.lstrip().startswith(
                     "/"
                 )
-                reminder_command = bool(
-                    self.reminders
-                    and command_name.startswith("/")
-                    and self.reminders.accepts_message(routed_text)
+                reminder_request = bool(
+                    self.reminders and self.reminders.accepts_message(routed_text)
                 )
                 inbox_command = bool(self.inbox and command_name == "/inbox")
                 planning_followup = bool(
@@ -105,7 +110,7 @@ class TelegramCommands:
                         "/status",
                         "/availability",
                     }
-                    or reminder_command
+                    or reminder_request
                     or inbox_command
                 )
                 if supported_command or planning_followup or natural_text:
@@ -137,7 +142,9 @@ class TelegramCommands:
                             )
                             text = availability_response.text
                             reply_markup = _telegram_markup(availability_response)
-                        elif reminder_command and self.reminders:
+                        elif reminder_request and self.reminders:
+                            if natural_text and self.inbox and self.inbox.has_pending_prompt(now):
+                                self.inbox.clear_pending_prompt()
                             text = self.reminders.handle_message(update_id, routed_text, now) or ""
                         elif inbox_command and self.inbox:
                             text = self.inbox.handle_message(update_id, routed_text, now) or ""
@@ -208,15 +215,28 @@ class TelegramCommands:
                 now,
                 inbox_prompt_pending=inbox_pending,
             )
-        except Exception:
-            intent = None
+        except MessageIntentUnavailable:
+            _logger.warning("Telegram message routing is temporarily unavailable via Groq")
+            return (
+                "Groq временно не смог разобрать сообщение. Ничего не записал — "
+                "попробуй ещё раз через минуту.",
+                None,
+            )
+        except Exception as error:
+            _logger.warning(
+                "Telegram message routing failed unexpectedly (%s)", type(error).__name__
+            )
+            return (
+                "Не удалось обработать сообщение. Ничего не записал — попробуй ещё раз.",
+                None,
+            )
 
         if intent is None or intent.confidence == "low":
             if inbox_pending and self.inbox:
                 self.inbox.clear_pending_prompt()
             return (
-                "Не понял, куда направить сообщение. Напиши его ещё раз как идею для Inbox, "
-                "задачу, план в календаре или напоминание. Ничего не записал.",
+                "Не уверен, что сделать с сообщением: сохранить в Inbox, создать задачу, "
+                "предложить время в календаре или поставить напоминание. Ничего не записал.",
                 None,
             )
 

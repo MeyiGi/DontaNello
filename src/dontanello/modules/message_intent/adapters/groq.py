@@ -9,6 +9,7 @@ from typing import cast
 from dontanello.integrations.groq.client import GroqClient
 
 from ..models import IntentConfidence, IntentDestination, MessageIntent
+from ..ports import MessageIntentUnavailable
 
 _SYSTEM = """You route one private Telegram message for a personal assistant.
 Return only JSON with these keys: destination, confidence, title, due_date, normalized_text.
@@ -37,7 +38,15 @@ If calendar duration is missing, leave it missing so the assistant asks.
 For reminders, begin with «Напомни» and keep the requested reminder time explicit enough for the
 existing reminder handler to parse.
 Use the supplied local date to resolve relative dates. If the message is not an actionable save or
-calendar request, choose other. If intent is ambiguous, choose clarify and confidence low."""
+calendar request, choose other. If intent is ambiguous, choose clarify and confidence low.
+
+Short or misspelled wording can still have clear intent. Words like «План» are conversational
+prefixes, not a separate destination. Examples:
+- «План хочу позаниматься безопасностью 1.5 часа» means calendar for today.
+- «Хочу позаниматься безопасностью 1.5 часа завтра» means calendar for tomorrow.
+- «Хочу позаниматься безопасностью завтра» means calendar with duration left unspecified.
+Use confidence high when one of these actions is clear, even without the exact phrase «добавь в
+календарь»."""
 
 _DESTINATIONS = {"inbox", "task", "calendar", "reminder", "clarify", "other"}
 _CONFIDENCE = {"high", "medium", "low"}
@@ -67,9 +76,9 @@ class GroqMessageIntentInterpreter:
             response = self.client.complete(_SYSTEM, prompt, max_output_tokens=300)
             value = json.loads(response)
         except (RuntimeError, ValueError):
-            return None
+            raise MessageIntentUnavailable("Groq intent analysis is unavailable") from None
         if not isinstance(value, dict):
-            return None
+            raise MessageIntentUnavailable("Groq returned an unusable intent result")
 
         destination = value.get("destination")
         confidence = value.get("confidence")
@@ -83,15 +92,15 @@ class GroqMessageIntentInterpreter:
             or not isinstance(title, str)
             or not isinstance(normalized_text, str)
         ):
-            return None
+            raise MessageIntentUnavailable("Groq returned an unusable intent result")
 
         due_date = _parse_due_date(value.get("due_date"))
         if value.get("due_date") is not None and due_date is None:
-            return None
+            raise MessageIntentUnavailable("Groq returned an unusable intent result")
         title = " ".join(title.split())[:120]
         normalized_text = " ".join(normalized_text.split())[:500]
         if destination in {"inbox", "task"} and not title:
-            return None
+            raise MessageIntentUnavailable("Groq returned an unusable intent result")
         if destination in {"calendar", "reminder"} and not normalized_text:
             normalized_text = text.strip()[:500]
         if destination == "reminder" and not normalized_text.casefold().startswith("напомни"):

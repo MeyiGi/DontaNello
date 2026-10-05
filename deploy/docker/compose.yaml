@@ -1,0 +1,39 @@
+name: dontanello
+
+services:
+  dontanello:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    env_file:
+      - .env
+    environment:
+      GOOGLE_CALENDAR_CLIENT_SECRET_FILE: /run/secrets/google-calendar-client.json
+    user: "${DONTANELLO_UID:-1000}:${DONTANELLO_GID:-1000}"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    volumes:
+      - type: bind
+        source: config/settings.json
+        target: /app/config/settings.json
+        read_only: true
+      - type: bind
+        source: state
+        target: /app/state
+      - type: bind
+        source: secrets
+        target: /run/secrets
+        read_only: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
