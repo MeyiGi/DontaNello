@@ -223,3 +223,25 @@ class SettingsTests(unittest.TestCase):
         (self.root / "config" / "settings.json").write_text(json.dumps(config))
         with self.assertRaises(ValueError):
             load_settings(self.root)
+
+    def test_weather_requires_a_city_when_enabled_and_redacts_the_city_from_repr(self):
+        config = {"completion_sources": [self.source], "weather": {"enabled": True}}
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            self.assertRaisesRegex(ValueError, "WEATHER_CITY"),
+        ):
+            load_settings(self.root)
+        with patch.dict("os.environ", {"WEATHER_CITY": "Bishkek, Kyrgyzstan"}, clear=True):
+            settings = load_settings(self.root)
+        self.assertEqual(settings.weather_city, "Bishkek, Kyrgyzstan")
+        self.assertNotIn("Bishkek, Kyrgyzstan", repr(settings))
+
+    def test_weather_schedule_must_be_valid_local_hhmm(self):
+        config = {"completion_sources": [self.source], "weather": {"time": "6:00"}}
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            self.assertRaisesRegex(ValueError, "weather.time"),
+        ):
+            load_settings(self.root)

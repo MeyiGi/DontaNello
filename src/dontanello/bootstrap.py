@@ -11,6 +11,7 @@ from dontanello.integrations.google_calendar.client import GoogleCalendarClient
 from dontanello.integrations.groq.client import GroqClient
 from dontanello.integrations.notion.client import NotionClient
 from dontanello.integrations.telegram.client import TelegramClient
+from dontanello.integrations.weather.open_meteo import OpenMeteoClient
 from dontanello.modules.calendar_planning import CalendarPlanningApplication
 from dontanello.modules.calendar_planning.adapters.google_calendar import GoogleCalendarAdapter
 from dontanello.modules.calendar_planning.adapters.groq import GroqPlanningInterpreter
@@ -56,6 +57,10 @@ from dontanello.modules.task_capture.adapters.notion import (
     NotionTaskWriterConfig,
 )
 from dontanello.modules.task_capture.adapters.sqlite import SQLiteTaskCaptureRepository
+from dontanello.modules.weather import WeatherApplication
+from dontanello.modules.weather.adapters.open_meteo import OpenMeteoWeatherProvider
+from dontanello.modules.weather.adapters.sqlite import SQLiteWeatherRepository
+from dontanello.modules.weather.adapters.telegram import TelegramWeatherSender
 from dontanello.platform.clock import LocalClock
 from dontanello.platform.settings import Settings
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -75,6 +80,7 @@ class Runtime:
     planning_app: CalendarPlanningApplication | None = None
     task_capture_app: TaskCaptureApplication | None = None
     message_intent_interpreter: MessageIntentInterpreter | None = None
+    weather_app: WeatherApplication | None = None
 
     def now(self) -> datetime:
         return datetime.now(self.settings.timezone)
@@ -206,6 +212,18 @@ class Runtime:
         scheduler = ScheduledReports(
             delivery, self.report, journal.active_since(self.now()), hour, minute, weekly_weekday
         )
+        weather_config = self.settings.config.get("weather", {})
+        if weather_config.get("enabled", False):
+            self.weather_app = WeatherApplication(
+                OpenMeteoWeatherProvider(OpenMeteoClient()),
+                SQLiteWeatherRepository(self.settings.root / "state" / "weather.sqlite3"),
+                TelegramWeatherSender(telegram),
+                self.settings.weather_city,
+                self.settings.telegram_chat_id,
+                self.settings.timezone,
+                self.settings.timezone.key,
+                time.fromisoformat(weather_config.get("time", "06:00")),
+            )
 
         def status() -> str:
             counts = journal.status()
@@ -233,6 +251,7 @@ class Runtime:
             planning=self.planning_app,
             task_capture=self.task_capture_app,
             message_intent=self.message_intent_interpreter,
+            weather=self.weather_app,
         )
         menu = [
             {"command": "week", "description": "Обзор за прошлую неделю"},
@@ -248,6 +267,8 @@ class Runtime:
                     {"command": "cancelreminder", "description": "Отменить напоминание"},
                 ]
             )
+        if self.weather_app:
+            menu.append({"command": "weather", "description": "Прогноз погоды на сегодня"})
         if self.inbox_app:
             menu.append({"command": "inbox", "description": "Записать идею в Notion Inbox"})
         menu_configured = False
@@ -268,6 +289,16 @@ class Runtime:
             )
         )
         jobs.append(Job("telegram", commands.run, group="telegram", interval_seconds=1))
+        weather_app = self.weather_app
+        if weather_app is not None:
+            jobs.append(
+                Job(
+                    "weather",
+                    lambda: weather_app.run_morning(self.now()),
+                    group="weather",
+                    interval_seconds=60,
+                )
+            )
         if reports.get("enabled", False):
             jobs.append(
                 Job(

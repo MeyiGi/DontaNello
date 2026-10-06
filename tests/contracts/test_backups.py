@@ -181,6 +181,37 @@ class BackupContractTests(unittest.TestCase):
                 [("before snapshot",)],
             )
 
+    def test_weather_delivery_state_is_backed_up_and_live_history_is_preserved(self):
+        database_path = self.root / "state" / "weather.sqlite3"
+        connection = sqlite3.connect(database_path)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("CREATE TABLE delivery (local_date TEXT PRIMARY KEY)")
+        connection.execute("INSERT INTO delivery VALUES ('2026-09-27')")
+        connection.commit()
+        self.store.create(datetime(2026, 9, 28).date())
+        connection.execute("INSERT INTO delivery VALUES ('2026-09-28')")
+        connection.commit()
+        connection.close()
+
+        snapshot_db = self.root / "state" / "backups" / "2026-09-28" / "state" / "weather.sqlite3"
+        with sqlite3.connect(snapshot_db) as backup:
+            self.assertEqual(
+                backup.execute("SELECT local_date FROM delivery").fetchall(), [("2026-09-27",)]
+            )
+
+        self.store.restore("2026-09-28")
+        with sqlite3.connect(database_path) as current:
+            self.assertEqual(
+                current.execute("SELECT local_date FROM delivery ORDER BY local_date").fetchall(),
+                [("2026-09-27",), ("2026-09-28",)],
+            )
+
+        self.store.restore("2026-09-28", restore_delivery_history=True)
+        with sqlite3.connect(database_path) as restored:
+            self.assertEqual(
+                restored.execute("SELECT local_date FROM delivery").fetchall(), [("2026-09-27",)]
+            )
+
     def test_retention_prunes_only_owned_date_snapshots(self):
         service = BackupService(self.store, retention=2)
         for day in range(1, 5):

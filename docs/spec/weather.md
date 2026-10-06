@@ -1,0 +1,10 @@
+# Personal weather
+
+- The private Telegram keyboard includes “Погода сегодня”. The same forecast can be requested with `/weather` or a short Russian phrase such as “погода сегодня”. Authorization is checked before any forecast request; groups and other users receive no personal weather data.
+- The forecast covers the current local day in the configured user timezone and configured city. It shows current conditions and feels-like temperature, the daily low/high, precipitation probability and amount, peak wind, sunrise/sunset, and a compact morning/day/evening outlook. Temperature is Celsius and wind is km/h. The message attributes Open-Meteo as its data source.
+- A concise forecast is sent automatically each day at `weather.time` (default `06:00`) in the configured timezone. If the service starts later that day, it sends that day's forecast once. `WEATHER_CITY` is configured in the private `.env`; no weather API credential is required.
+- The manual action and scheduled delivery use the same forecast and renderer. Repeated manual requests may reuse a forecast for up to ten minutes. The daily delivery identity is the local calendar date; a confirmed send is never repeated that day.
+- Persist the scheduled message before Telegram delivery. Retry explicit Telegram rejection after five minutes using the same text. Mark an ambiguous Telegram result as uncertain and do not automatically resend it. A service restart also marks a message left in the sending state uncertain.
+- Include the weather delivery ledger in private state backups. Default restore preserves an existing live ledger; explicit delivery-history restore may roll it back.
+- If forecast data is unavailable, the manual action gives a short retry message. A scheduled attempt retries after five minutes without creating duplicate Telegram notifications; the weather job remains isolated from unrelated automation.
+- Weather is a read-only integration. It does not use Groq, Google Calendar, Notion, or DontaNello Work.

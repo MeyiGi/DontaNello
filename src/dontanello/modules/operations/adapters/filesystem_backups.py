@@ -25,6 +25,7 @@ class FileBackupStore:
         "state/inbox.sqlite3",
         "state/calendar_planning.sqlite3",
         "state/task_capture.sqlite3",
+        "state/weather.sqlite3",
         "config/settings.json",
     )
     REQUIRED = "state/checkboxes.json"
@@ -211,6 +212,7 @@ class FileBackupStore:
         inbox_path = "state/inbox.sqlite3"
         planning_path = "state/calendar_planning.sqlite3"
         task_capture_path = "state/task_capture.sqlite3"
+        weather_path = "state/weather.sqlite3"
         progress_path = "state/progress.sqlite3"
         restore_delivery = delivery_path in files and (
             restore_delivery_history or not (self.root / delivery_path).exists()
@@ -227,6 +229,9 @@ class FileBackupStore:
         restore_task_capture = task_capture_path in files and (
             restore_delivery_history or not (self.root / task_capture_path).exists()
         )
+        restore_weather = weather_path in files and (
+            restore_delivery_history or not (self.root / weather_path).exists()
+        )
         restore_files = [
             relative
             for relative in selected
@@ -235,6 +240,7 @@ class FileBackupStore:
             and (relative != inbox_path or restore_inbox)
             and (relative != planning_path or restore_planning)
             and (relative != task_capture_path or restore_task_capture)
+            and (relative != weather_path or restore_weather)
         ]
 
         targets = {relative: self._check_restore_target(relative) for relative in selected}
@@ -249,6 +255,7 @@ class FileBackupStore:
                 inbox_path,
                 planning_path,
                 task_capture_path,
+                weather_path,
             )
         ]
         for database_path in databases_to_restore:
@@ -288,6 +295,7 @@ class FileBackupStore:
                     inbox_path,
                     planning_path,
                     task_capture_path,
+                    weather_path,
                 ):
                     for suffix in ("-wal", "-shm"):
                         sidecar = self._check_restore_target(relative + suffix)

@@ -15,6 +15,7 @@
     "day_end": "22:00",
     "buffer_minutes": 15
   },
+  "weather": {"enabled": true, "time": "06:00"},
   "reminders": {
     "enabled": true,
     "weekdays": [0, 1, 2, 3, 4, 5, 6],

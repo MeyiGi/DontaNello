@@ -1,0 +1,1 @@
+"""Weather capability adapters."""

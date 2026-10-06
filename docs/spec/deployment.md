@@ -2,9 +2,9 @@
 
 ## Docker on a dedicated computer
 
-DontaNello can run as one Docker Compose service on the computer that stays on. The container runs the personal assistant only; it does not include DontaNello Work. It reads credentials from the host `.env`, reads `config/settings.json`, and writes all durable application state to the host `state/` directory. The OAuth client JSON is mounted read-only from `secrets/google-calendar-client.json`.
+DontaNello can run as one Docker Compose service on the computer that stays on. The container runs the personal assistant only; it does not include DontaNello Work. It reads credentials and the private weather city from the host `.env`, reads schedules from `config/settings.json`, and writes all durable application state to the host `state/` directory. Set `WEATHER_CITY` in `.env` when daily weather is enabled. The OAuth client JSON is mounted read-only from `secrets/google-calendar-client.json`.
 
-Keep exactly one running bot process for a Telegram bot token. Before moving the service to another computer, stop the old systemd or Docker instance. Transfer the complete `state/` directory while the old process is stopped so Telegram position, task/report journals, reminders, calendar proposals, OAuth token, and `state/checkboxes.json` retain continuity. Transfer `.env` and the Google OAuth client JSON separately over a secure channel; they are excluded from the Docker build context and Git.
+Keep exactly one running bot process for a Telegram bot token. Before moving the service to another computer, stop the old systemd or Docker instance. Transfer the complete `state/` directory while the old process is stopped so Telegram position, task/report journals, reminders, calendar proposals, weather delivery history, OAuth token, and `state/checkboxes.json` retain continuity. Transfer `.env` and the Google OAuth client JSON separately over a secure channel; they are excluded from the Docker build context and Git.
 
 Start the service with `docker compose --project-directory . -f deploy/docker/compose.yaml up -d --build`. Compose restarts it after failures and host reboots. Update it after `git pull` with the same command. The state directory remains on the host when the container is rebuilt or removed.
 

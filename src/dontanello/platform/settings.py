@@ -24,6 +24,7 @@ class Settings:
     groq_planning_api_key: str = field(default="", repr=False)
     groq_planning_model: str = "openai/gpt-oss-20b"
     google_calendar_client_secret_file: Path | None = field(default=None, repr=False)
+    weather_city: str = field(default="", repr=False)
 
 
 def load_settings(root: Path) -> Settings:
@@ -61,12 +62,15 @@ def load_settings(root: Path) -> Settings:
     reminders = config.get("reminders", {})
     inbox = config.get("inbox", {})
     planning = config.get("calendar_planning", {})
+    weather = config.get("weather", {})
     if not isinstance(reports, dict) or not isinstance(operations, dict):
         raise ValueError("Некорректные настройки reports/operations")
     if not isinstance(inbox, dict):
         raise ValueError("inbox должен быть объектом")
     if not isinstance(planning, dict):
         raise ValueError("calendar_planning должен быть объектом")
+    if not isinstance(weather, dict):
+        raise ValueError("weather должен быть объектом")
     if planning:
         for time_key, time_default in (("day_start", "08:00"), ("day_end", "22:00")):
             raw_time = planning.get(time_key, time_default)
@@ -86,6 +90,21 @@ def load_settings(root: Path) -> Settings:
         calendar_id = planning.get("calendar_id", "primary")
         if not isinstance(calendar_id, str) or not calendar_id:
             raise ValueError("calendar_planning.calendar_id должен быть непустой строкой")
+    weather_enabled = weather.get("enabled", False)
+    if type(weather_enabled) is not bool:
+        raise ValueError("weather.enabled должен быть boolean")
+    weather_time = weather.get("time", "06:00")
+    if not isinstance(weather_time, str):
+        raise ValueError("weather.time должен быть временем HH:MM")
+    try:
+        parsed_weather_time = time.fromisoformat(weather_time)
+    except ValueError:
+        raise ValueError("weather.time должен быть временем HH:MM") from None
+    if parsed_weather_time.second or parsed_weather_time.microsecond or len(weather_time) != 5:
+        raise ValueError("weather.time должен быть временем HH:MM")
+    weather_city = environment.get("WEATHER_CITY", "").strip()
+    if weather_enabled and not weather_city:
+        raise ValueError("WEATHER_CITY не задан для включённой погоды")
     if inbox and any(
         not isinstance(inbox.get(key), str) or not inbox[key]
         for key in ("data_source_id", "title_property")
@@ -243,4 +262,5 @@ def load_settings(root: Path) -> Settings:
         groq_planning_api_key=groq_planning_key,
         groq_planning_model=groq_planning_model,
         google_calendar_client_secret_file=secret_path,
+        weather_city=weather_city,
     )

@@ -22,6 +22,7 @@ from dontanello.modules.reports import (
     previous_week,
 )
 from dontanello.modules.task_capture import TaskCaptureApplication, TaskDraft, TaskResponse
+from dontanello.modules.weather import WeatherApplication, WeatherUnavailable
 from dontanello.platform.telegram_cursor import TelegramCursor
 
 _logger = logging.getLogger(__name__)
@@ -29,7 +30,8 @@ _logger = logging.getLogger(__name__)
 PERSONAL_KEYBOARD = {
     "keyboard": [
         [{"text": "📋 Мои задачи"}, {"text": "📥 Inbox"}],
-        [{"text": "📅 Свободное время"}, {"text": "⏰ Напоминания"}],
+        [{"text": "🌤 Погода сегодня"}, {"text": "📅 Свободное время"}],
+        [{"text": "⏰ Напоминания"}],
         [{"text": "⚙️ Настройки дедлайнов"}, {"text": "ℹ️ Статус"}],
     ],
     "resize_keyboard": True,
@@ -40,6 +42,7 @@ PERSONAL_KEYBOARD = {
 _KEYBOARD_COMMANDS = {
     "📋 Мои задачи": "/tasks",
     "📥 Inbox": "/inbox",
+    "🌤 Погода сегодня": "/weather",
     "📅 Свободное время": "/availability",
     "⏰ Напоминания": "/reminders",
     "⚙️ Настройки дедлайнов": "/tasksettings",
@@ -63,6 +66,7 @@ class TelegramCommands:
     planning: CalendarPlanningApplication | None = None
     task_capture: TaskCaptureApplication | None = None
     message_intent: MessageIntentInterpreter | None = None
+    weather: WeatherApplication | None = None
 
     def run(self) -> int:
         offset = self.cursor.load()
@@ -90,6 +94,12 @@ class TelegramCommands:
                 command = routed_text.split(maxsplit=1)
                 command_name = command[0].split("@", 1)[0].lower() if command else ""
                 availability_request = command_name == "/availability"
+                weather_request = command_name == "/weather" or routed_text.strip().casefold() in {
+                    "погода",
+                    "погода сегодня",
+                    "какая погода",
+                    "какая погода сегодня",
+                }
                 natural_text = bool(routed_text.strip()) and not routed_text.lstrip().startswith(
                     "/"
                 )
@@ -110,6 +120,7 @@ class TelegramCommands:
                         "/status",
                         "/availability",
                     }
+                    or weather_request
                     or reminder_request
                     or inbox_command
                 )
@@ -142,6 +153,15 @@ class TelegramCommands:
                             )
                             text = availability_response.text
                             reply_markup = _telegram_markup(availability_response)
+                        elif weather_request:
+                            if self.weather is None:
+                                text = "Погода пока не настроена."
+                            else:
+                                try:
+                                    text = self.weather.today(now)
+                                except WeatherUnavailable:
+                                    _logger.warning("Weather forecast is temporarily unavailable")
+                                    text = "Не получилось загрузить прогноз. Попробуй ещё раз чуть позже."
                         elif reminder_request and self.reminders:
                             if natural_text and self.inbox and self.inbox.has_pending_prompt(now):
                                 self.inbox.clear_pending_prompt()
@@ -168,6 +188,8 @@ class TelegramCommands:
                                 "Можно нажимать кнопки внизу чата — команды вводить не обязательно.\n"
                                 "📅 СВОБОДНОЕ ВРЕМЯ\n"
                                 "Кнопка покажет промежутки, свободные по Google Calendar; дни можно переключать.\n"
+                                "🌤 ПОГОДА СЕГОДНЯ\n"
+                                "Покажет прогноз на сегодня; краткая сводка также приходит каждое утро.\n\n"
                                 "Можно написать: «Хочу позаниматься безопасностью 1,5 часа» — если день не указан, предложу время на сегодня.\n\n"
                                 "📥 INBOX\n"
                                 "Нажми «Inbox» или напиши, что сохранить: «Запиши в инбокс: узнать про аффинный шифр».\n\n"

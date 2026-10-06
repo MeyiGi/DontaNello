@@ -11,6 +11,32 @@ from dontanello.platform.settings import Settings
 
 
 class ProgressRuntimeTests(unittest.TestCase):
+    def test_weather_is_composed_as_an_independent_daily_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Settings(
+                root=Path(directory),
+                notion_token="test-notion",
+                telegram_token="test-telegram",
+                timezone=ZoneInfo("Asia/Bishkek"),
+                poll_seconds=30,
+                config={
+                    "completion_sources": [],
+                    "reports": {"sources": []},
+                    "weather": {"enabled": True, "time": "06:00"},
+                },
+                telegram_chat_id="123",
+                weather_city="Bishkek, Kyrgyzstan",
+            )
+            with patch("dontanello.bootstrap.TelegramClient"):
+                runtime = build_runtime(settings)
+                jobs = runtime.jobs()
+
+        weather_jobs = [job for job in jobs if job.name == "weather"]
+        self.assertEqual(len(weather_jobs), 1)
+        self.assertEqual(weather_jobs[0].group, "weather")
+        self.assertEqual(weather_jobs[0].interval_seconds, 60)
+        self.assertIsNotNone(runtime.weather_app)
+
     def test_message_intent_uses_the_configured_groq_key_pool(self):
         with tempfile.TemporaryDirectory() as directory:
             settings = Settings(

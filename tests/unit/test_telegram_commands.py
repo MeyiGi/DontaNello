@@ -129,6 +129,15 @@ class FakePlanning:
         )
 
 
+class FakeWeather:
+    def __init__(self):
+        self.calls = []
+
+    def today(self, now):
+        self.calls.append(now)
+        return "weather today"
+
+
 class FakeTaskCapture:
     def __init__(self):
         self.calls = []
@@ -245,6 +254,8 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.reminders = reminders
         self.commands.inbox = inbox
         self.commands.planning = planning
+        weather = FakeWeather()
+        self.commands.weather = weather
         self.telegram.items = [
             update(1, command="📋 Мои задачи"),
             update(2, command="📥 Inbox"),
@@ -252,6 +263,7 @@ class TelegramCommandTests(unittest.TestCase):
             update(4, command="⚙️ Настройки дедлайнов"),
             update(5, command="ℹ️ Статус"),
             update(6, command="📅 Свободное время"),
+            update(7, command="🌤 Погода сегодня"),
         ]
 
         self.commands.run()
@@ -263,6 +275,8 @@ class TelegramCommandTests(unittest.TestCase):
         self.assertEqual(reminders.calls[2][1], "/tasksettings")
         self.assertEqual(self.telegram.sent[4][1], "status")
         self.assertEqual(self.telegram.sent[5][1], "availability")
+        self.assertEqual(self.telegram.sent[6][1], "weather today")
+        self.assertEqual(weather.calls, [self.now])
         self.assertEqual(planning.availability_calls, [self.now.date()])
         self.assertEqual(self.telegram.parse_modes[0], "HTML")
 
@@ -273,12 +287,27 @@ class TelegramCommandTests(unittest.TestCase):
             [
                 "📋 Мои задачи",
                 "📥 Inbox",
+                "🌤 Погода сегодня",
                 "📅 Свободное время",
                 "⏰ Напоминания",
                 "⚙️ Настройки дедлайнов",
                 "ℹ️ Статус",
             ],
         )
+
+    def test_weather_is_available_by_button_and_plain_text_only_in_private_chat(self):
+        weather = FakeWeather()
+        self.commands.weather = weather
+        self.telegram.items = [
+            update(1, command="Какая погода сегодня"),
+            update(2, chat_id=999, command="погода сегодня"),
+            update(3, kind="group", command="/weather"),
+        ]
+
+        self.commands.run()
+
+        self.assertEqual(self.telegram.sent, [("123", "weather today")])
+        self.assertEqual(weather.calls, [self.now])
 
     def test_start_replaces_stale_telegram_keyboard(self):
         self.telegram.items = [update(1, command="/start")]
