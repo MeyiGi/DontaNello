@@ -33,6 +33,17 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(settings.notion_token, "environment-token")
             self.assertNotIn("environment-token", repr(settings))
 
+    def test_unknown_configuration_fields_are_preserved(self):
+        config = {
+            "completion_sources": [self.source],
+            "future_capability": {"enabled": True, "label": "kept"},
+        }
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+
+        settings = load_settings(self.root)
+
+        self.assertEqual(settings.config, config)
+
     def test_duplicate_checkbox_rejected(self):
         (self.root / "config" / "settings.json").write_text(
             json.dumps({"completion_sources": [self.source, self.source]})
@@ -97,6 +108,28 @@ class SettingsTests(unittest.TestCase):
         with patch.dict("os.environ", {"GROQ_API_KEY": "private-groq-key"}, clear=True):
             settings = load_settings(self.root)
             self.assertNotIn("private-groq-key", repr(settings))
+
+    def test_enabled_reports_reject_an_empty_groq_key_pool(self):
+        config = {
+            "completion_sources": [self.source],
+            "reports": {
+                "enabled": True,
+                "sources": [
+                    {
+                        "id": "work",
+                        "name": "Work",
+                        "date_property": "Date",
+                        "title_property": "Name",
+                    }
+                ],
+            },
+        }
+        (self.root / "config" / "settings.json").write_text(json.dumps(config))
+        with (
+            patch.dict("os.environ", {"GROQ_API_KEYS": ", ,"}, clear=True),
+            self.assertRaisesRegex(ValueError, "GROQ_API_KEY"),
+        ):
+            load_settings(self.root)
 
     def test_groq_key_pool_is_unique_ordered_and_never_in_settings_repr(self):
         with patch.dict(
