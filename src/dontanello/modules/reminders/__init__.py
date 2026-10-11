@@ -1,6 +1,6 @@
 """Public application contract for Telegram reminders."""
 
 from .application import ReminderApplication
-from .models import TaskDeadline, TaskDigestSettings
+from .models import ReminderDraft, TaskDeadline, TaskDigestSettings
 
-__all__ = ["ReminderApplication", "TaskDeadline", "TaskDigestSettings"]
+__all__ = ["ReminderApplication", "ReminderDraft", "TaskDeadline", "TaskDigestSettings"]

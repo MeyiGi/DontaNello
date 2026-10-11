@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from dontanello.modules.calendar_planning.adapters.groq import GroqPlanningInterpreter
 from dontanello.modules.calendar_planning.application import CalendarPlanningApplication
-from dontanello.modules.calendar_planning.models import CalendarEvent
+from dontanello.modules.calendar_planning.models import CalendarEvent, PlanRequest, TimeSlot
 
 
 class MemoryCalendar:
@@ -75,6 +75,85 @@ class CalendarPlanningTests(unittest.TestCase):
             buffer_minutes=15,
             timezone_name=self.zone.key,
         )
+
+    def test_typed_request_uses_fields_and_replays_without_reinterpretation(self):
+        request = PlanRequest(self.now.date(), "Безопасность", 90)
+        text = "Текст без синтаксиса parser"
+        interpreter = Mock()
+        self.application.interpreter = interpreter
+
+        first = self.application.handle_request(200, text, request, self.now)
+        repeated = self.application.handle_request(200, text, request, self.now)
+
+        self.assertEqual(first, repeated)
+        self.assertEqual(self.calendar.reads, 1)
+        self.assertEqual(self.calendar.created, {})
+        self.assertIn("Безопасность — 1 ч 30 мин", first.text)
+        interpreter.interpret.assert_not_called()
+
+    def test_typed_request_confirmation_replay_and_undo_preserve_event_identity(self):
+        proposal = self.application.handle_request(
+            203, "Источник", PlanRequest(self.now.date(), "Чтение", 60), self.now
+        )
+        add = proposal.button_rows[0][0].callback_data
+        created = self.application.handle_callback(add, self.now)
+        self.assertIn("✅ Добавил", created.text)
+        self.assertEqual(len(self.calendar.created), 1)
+        self.application.handle_callback(add, self.now)
+        self.assertEqual(len(self.calendar.created), 1)
+        self.calendar.items.append(
+            CalendarEvent("unrelated", "Другое событие", self.now, self.now.replace(hour=19))
+        )
+        undone = self.application.handle_callback(created.button_rows[0][0].callback_data, self.now)
+        self.assertIn("удалено", undone.text)
+        self.assertEqual(self.calendar.created, {})
+        self.assertEqual([event.id for event in self.calendar.items], ["unrelated"])
+
+    def test_typed_missing_duration_preserves_existing_followup_flow(self):
+        day = self.now.date().replace(day=5)
+        question = self.application.handle_request(
+            201, "Непарсируемый текст", PlanRequest(day, "Безопасность", None), self.now
+        )
+
+        self.assertIn("На сколько времени", question.text)
+        self.assertEqual(self.calendar.reads, 0)
+        answer = self.application.handle_message(202, "1,5 часа", self.now)
+        self.assertIn("Безопасность — 1 ч 30 мин", answer.text)
+        self.assertIsNone(self.repository.pending)
+        self.assertEqual(self.calendar.created, {})
+
+    def test_typed_invalid_requests_do_not_read_calendar_or_save_proposals(self):
+        requests = [
+            PlanRequest(self.now.date(), "", 60),
+            PlanRequest(self.now.date().replace(day=3), "Занятие", 60),
+            PlanRequest(self.now.date(), "Занятие", 14),
+            PlanRequest(self.now.date(), "Занятие", 481),
+            PlanRequest(self.now.date(), "Занятие", True),
+            PlanRequest(self.now.date(), "Занятие", None, TimeSlot(self.now, self.now)),
+        ]
+        for index, request in enumerate(requests, start=210):
+            with self.subTest(request=request):
+                response = self.application.handle_request(index, "Занятие", request, self.now)
+                self.assertIn("не менял", response.text)
+        self.assertEqual(self.calendar.reads, 0)
+        self.assertEqual(self.repository.items, {})
+        self.assertIsNone(self.repository.pending)
+
+    def test_typed_fixed_range_uses_existing_confirmation_and_fresh_conflict_check(self):
+        slot = TimeSlot(self.now.replace(hour=19), self.now.replace(hour=20))
+        response = self.application.handle_request(
+            220, "Занятие 19–20", PlanRequest(self.now.date(), "Занятие", None, slot), self.now
+        )
+        self.assertIn("Предлагаю", response.text)
+        self.assertTrue(response.button_rows)
+        self.assertEqual(self.calendar.created, {})
+        proposal = self.repository.proposal_for_update(220)
+        self.assertEqual(proposal.duration_minutes, 60)
+        self.calendar.items.append(CalendarEvent("other", "Встреча", slot.start, slot.end))
+        result = self.application.handle_callback(f"p:{proposal.id}:add", self.now)
+        self.assertEqual(self.calendar.reads, 2)
+        self.assertEqual(self.calendar.created, {})
+        self.assertIn("пересекается", result.text)
 
     def test_deterministic_russian_request_suggests_without_creating(self):
         text = "сегодня хочу 1.5 часа позаниматься безопасностью"

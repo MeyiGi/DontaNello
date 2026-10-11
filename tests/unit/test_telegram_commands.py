@@ -1,13 +1,18 @@
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from dontanello.entrypoints.telegram import PERSONAL_KEYBOARD, TelegramCommands
 from dontanello.modules.calendar_planning import InlineButton, PlannerResponse
-from dontanello.modules.message_intent import MessageIntent, MessageIntentUnavailable
+from dontanello.modules.message_intent import (
+    CalendarIntent,
+    MessageIntent,
+    MessageIntentUnavailable,
+    ReminderIntent,
+)
 from dontanello.modules.reports import DeliveryRejected, DeliveryService, DeliveryUncertain
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.platform.telegram_cursor import TelegramCursor
@@ -48,6 +53,11 @@ class FakeTelegram:
 class FakeReminders:
     def __init__(self):
         self.calls = []
+        self.draft_calls = []
+
+    def handle_draft(self, update_id, draft, now):
+        self.draft_calls.append((update_id, draft, now))
+        return "reminder response"
 
     def accepts_message(self, text, now=None, update_id=None):
         return text.startswith(("/tasks", "/tasksettings", "/reminders")) or text.startswith(
@@ -96,6 +106,7 @@ class FakeInbox:
 class FakePlanning:
     def __init__(self):
         self.calls = []
+        self.request_calls = []
         self.callback_calls = []
         self.availability_calls = []
         self.pending_reply = None
@@ -114,6 +125,10 @@ class FakePlanning:
             "suggested",
             ((InlineButton("Add", "p:proposal:add"),),),
         )
+
+    def handle_request(self, update_id, text, request, now):
+        self.request_calls.append((update_id, text, request))
+        return PlannerResponse("suggested", ((InlineButton("Add", "p:proposal:add"),),))
 
     def handle_callback(self, data, now, on_progress=None):
         self.callback_calls.append(data)
@@ -434,7 +449,11 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.message_intent = FakeIntentInterpreter(
             {
                 phrase: MessageIntent(
-                    "calendar", "high", normalized_text="сегодня хочу 1 час почитать"
+                    "calendar",
+                    "high",
+                    title="Почитать",
+                    normalized_text="source only",
+                    calendar=CalendarIntent(self.now.date(), 60),
                 )
             }
         )
@@ -442,7 +461,12 @@ class TelegramCommandTests(unittest.TestCase):
 
         self.commands.run()
 
-        self.assertEqual(len(planning.calls), 1)
+        self.assertEqual(len(planning.request_calls), 1)
+        self.assertEqual(planning.calls, [])
+        request = planning.request_calls[0][2]
+        self.assertEqual(request.title, "Почитать")
+        self.assertEqual(request.day, self.now.date())
+        self.assertEqual(request.duration_minutes, 60)
         self.assertEqual(self.telegram.sent[0][1], "suggested")
         self.assertEqual(
             self.telegram.markups[0],
@@ -460,6 +484,7 @@ class TelegramCommandTests(unittest.TestCase):
                     "high",
                     title="Безопасность",
                     normalized_text="Сегодня хочу позаниматься безопасностью 1,5 часа",
+                    calendar=CalendarIntent(self.now.date(), 90),
                 )
             }
         )
@@ -468,10 +493,61 @@ class TelegramCommandTests(unittest.TestCase):
         self.commands.run()
 
         self.assertEqual(
-            planning.calls,
+            [(uid, text) for uid, text, request in planning.request_calls],
             [(1, "Сегодня хочу позаниматься безопасностью 1,5 часа")],
         )
         self.assertEqual(self.telegram.sent[0][1], "suggested")
+
+    def test_llm_reminder_uses_extracted_fields_without_reparsing_text(self):
+        reminders = FakeReminders()
+        self.commands.reminders = reminders
+        phrase = "Не забыть позвонить завтра"
+        interpreter = FakeIntentInterpreter(
+            {
+                phrase: MessageIntent(
+                    "reminder",
+                    "high",
+                    title="Позвонить",
+                    normalized_text="source only",
+                    reminder=ReminderIntent(day=date(2026, 9, 29), daypart="evening"),
+                )
+            }
+        )
+        self.commands.message_intent = interpreter
+        self.telegram.items = [update(1, command=phrase)]
+        self.commands.run()
+        self.assertEqual(reminders.calls, [])
+        self.assertEqual(len(reminders.draft_calls), 1)
+        draft = reminders.draft_calls[0][1]
+        self.assertEqual(draft.text, "Позвонить")
+        self.assertEqual(draft.day, date(2026, 9, 29))
+        self.assertEqual(draft.daypart, "evening")
+        self.assertEqual(len(interpreter.calls), 1)
+        self.commands.run()
+        self.assertEqual(len(reminders.draft_calls), 1)
+
+    def test_calendar_fixed_time_fields_use_local_timezone(self):
+        planning = FakePlanning()
+        self.commands.planning = planning
+        phrase = "Завтра почитать с 19 до 20"
+        day = date(2026, 9, 29)
+        self.commands.message_intent = FakeIntentInterpreter(
+            {
+                phrase: MessageIntent(
+                    "calendar",
+                    "high",
+                    title="Почитать",
+                    normalized_text="source only",
+                    calendar=CalendarIntent(day, start_time=time(19), end_time=time(20)),
+                )
+            }
+        )
+        self.telegram.items = [update(1, command=phrase)]
+        self.commands.run()
+        slot = planning.request_calls[0][2].fixed_slot
+        self.assertEqual(slot.start, datetime(2026, 9, 29, 19, tzinfo=self.now.tzinfo))
+        self.assertEqual(slot.end, datetime(2026, 9, 29, 20, tzinfo=self.now.tzinfo))
+        self.assertEqual(planning.calls, [])
 
     def test_callback_actions_are_private_and_durable(self):
         planning = FakePlanning()
@@ -578,7 +654,9 @@ class TelegramCommandTests(unittest.TestCase):
                 phrase: MessageIntent(
                     "calendar",
                     "high",
+                    title="Информационная безопасность",
                     normalized_text="Хочу позаниматься информационной безопасностью 09.10",
+                    calendar=CalendarIntent(date(2026, 10, 9)),
                 )
             }
         )
@@ -586,7 +664,11 @@ class TelegramCommandTests(unittest.TestCase):
 
         self.commands.run()
 
-        self.assertEqual(planning.calls, [(2, phrase)])
+        self.assertEqual(
+            [(uid, text) for uid, text, request in planning.request_calls], [(2, phrase)]
+        )
+        self.assertEqual(planning.request_calls[0][2].day, date(2026, 10, 9))
+        self.assertIsNone(planning.request_calls[0][2].duration_minutes)
         self.assertFalse(inbox.pending)
         self.assertEqual(self.telegram.sent[-1][1], "suggested")
 

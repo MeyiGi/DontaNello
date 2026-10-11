@@ -96,14 +96,7 @@ class CalendarPlanningApplication:
             intent = parse_plan_intent(text, now)
             if intent is not None:
                 day, title = intent
-                self.repository.save_pending_intent(
-                    PendingPlanIntent(update_id, text, title, day, now)
-                )
-                return PlannerResponse(
-                    f"На сколько времени запланировать «{title}» на {_date_label(day, now.date())}? "
-                    "Напиши, например: «1 час», «1,5 часа» или «90 минут». "
-                    "Календарь пока не менял."
-                )
+                return self._ask_duration(update_id, text, day, title, now)
 
         if request is None and self.interpreter is not None and _looks_like_planning_request(text):
             try:
@@ -115,6 +108,61 @@ class CalendarPlanningApplication:
                 )
         if request is None:
             return None
+        return self._propose(update_id, request_text, request, now, completing_pending)
+
+    def handle_request(
+        self, update_id: int, request_text: str, request: PlanRequest, now: datetime
+    ) -> PlannerResponse:
+        """Accept extracted fields without parsing text or invoking another interpreter."""
+        existing = self.repository.proposal_for_update(update_id)
+        if existing is not None:
+            return self._proposal_response(existing, now)
+        if not request.title.strip() or request.day < now.astimezone(self.timezone).date():
+            return PlannerResponse("Укажи занятие и текущую или будущую дату. Календарь не менял.")
+        request = replace(request, title=request.title.strip()[:120])
+        if request.fixed_slot is not None:
+            slot = request.fixed_slot
+            if (
+                slot.start.utcoffset() is None
+                or slot.end.utcoffset() is None
+                or slot.start.astimezone(self.timezone).date() != request.day
+                or slot.end.astimezone(self.timezone).date() != request.day
+                or slot.end <= slot.start
+                or (slot.end - slot.start).total_seconds() % 60
+            ):
+                return PlannerResponse("Укажи корректный диапазон времени. Календарь не менял.")
+            request = replace(
+                request, duration_minutes=int((slot.end - slot.start).total_seconds() / 60)
+            )
+        if request.duration_minutes is None:
+            return self._ask_duration(update_id, request_text, request.day, request.title, now)
+        if type(request.duration_minutes) is not int or not 15 <= request.duration_minutes <= 480:
+            return PlannerResponse(
+                "Длительность должна быть от 15 минут до 8 часов. Календарь не менял."
+            )
+        return self._propose(
+            update_id, request_text, request, now, self._pending_intent(now) is not None
+        )
+
+    def _ask_duration(
+        self, update_id: int, text: str, day: date, title: str, now: datetime
+    ) -> PlannerResponse:
+        self.repository.save_pending_intent(PendingPlanIntent(update_id, text, title, day, now))
+        return PlannerResponse(
+            f"На сколько времени запланировать «{title}» на {_date_label(day, now.date())}? "
+            "Напиши, например: «1 час», «1,5 часа» или «90 минут». Календарь пока не менял."
+        )
+
+    def _propose(
+        self,
+        update_id: int,
+        request_text: str,
+        request: PlanRequest,
+        now: datetime,
+        completing_pending: bool,
+    ) -> PlannerResponse:
+        minutes = request.duration_minutes
+        assert minutes is not None
         proposal_id = hashlib.sha256(f"{update_id}:{request_text}".encode()).hexdigest()[:32]
         try:
             events = self.calendar.events(*self._calendar_range(request.day))
@@ -138,20 +186,20 @@ class CalendarPlanningApplication:
             if conflicts:
                 options = self._suggestions(
                     request.day,
-                    request.duration_minutes,
+                    minutes,
                     now,
                     events,
                     not_before=request.fixed_slot.end,
                 )
                 if not options:
-                    options = self._suggestions(request.day, request.duration_minutes, now, events)
+                    options = self._suggestions(request.day, minutes, now, events)
                 proposal = PlanProposal(
                     proposal_id,
                     update_id,
-                    text,
+                    request_text,
                     request.title,
                     request.day,
-                    request.duration_minutes,
+                    minutes,
                     options,
                     None,
                     "pending",
@@ -160,12 +208,12 @@ class CalendarPlanningApplication:
                 return self._conflict_response(proposal, request.fixed_slot, conflicts)
             options = (request.fixed_slot,)
         else:
-            options = self._suggestions(request.day, request.duration_minutes, now, events)
+            options = self._suggestions(request.day, minutes, now, events)
             if not options:
                 if completing_pending:
                     self.repository.clear_pending_intent()
                 return PlannerResponse(
-                    f"Не нашёл свободный слот на {request.duration_minutes} минут в выбранном окне. "
+                    f"Не нашёл свободный слот на {minutes} минут в выбранном окне. "
                     "Google Calendar не менял."
                 )
         proposal = PlanProposal(
@@ -174,7 +222,7 @@ class CalendarPlanningApplication:
             request_text,
             request.title,
             request.day,
-            request.duration_minutes,
+            minutes,
             options[:1],
             0,
             "pending",

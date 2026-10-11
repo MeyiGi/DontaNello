@@ -12,6 +12,7 @@ from dontanello.modules.reminders.application import (
     select_due_tasks,
 )
 from dontanello.modules.reminders.models import (
+    ReminderDraft,
     ReminderSendRejected,
     ReminderSendUncertain,
     TaskDeadline,
@@ -235,6 +236,89 @@ class ReminderTests(unittest.TestCase):
             "уже прошло", parse_reminder("Напомни сегодня в 05:00 проверить", self.now).message
         )
         self.assertIsNone(parse_reminder("Сегодня хорошая погода", self.now))
+
+    def test_typed_reminder_drafts_resolve_relative_daypart_and_default_times(self):
+        cases = (
+            (
+                ReminderDraft("проверить духовку", delay_minutes=30),
+                datetime(2026, 10, 4, 6, 30, tzinfo=self.now.tzinfo),
+            ),
+            (
+                ReminderDraft("позвонить маме", day=date(2026, 10, 5), daypart="evening"),
+                datetime(2026, 10, 5, 19, 0, tzinfo=self.now.tzinfo),
+            ),
+            (
+                ReminderDraft("купить хлеб", day=date(2026, 10, 5)),
+                datetime(2026, 10, 5, 9, 0, tzinfo=self.now.tzinfo),
+            ),
+            (
+                ReminderDraft("сдать отчёт", delay_minutes=1440),
+                datetime(2026, 10, 5, 9, 0, tzinfo=self.now.tzinfo),
+            ),
+            (
+                ReminderDraft(
+                    "принять лекарство",
+                    day=date(2026, 10, 5),
+                    clock=time(8, 30),
+                    daypart="evening",
+                ),
+                datetime(2026, 10, 5, 8, 30, tzinfo=self.now.tzinfo),
+            ),
+        )
+        for update_id, (draft, expected_due) in enumerate(cases, start=10):
+            with self.subTest(draft=draft):
+                self.app.handle_draft(update_id, draft, self.now)
+                reminder = next(
+                    item
+                    for item in self.repository.pending_personal()
+                    if item.source_update_id == update_id
+                )
+                self.assertEqual(reminder.text, draft.text)
+                self.assertEqual(reminder.due_at, expected_due)
+
+    def test_typed_reminder_draft_rejects_invalid_values_without_persisting(self):
+        invalid = (
+            ReminderDraft("  ", day=date(2026, 10, 5)),
+            ReminderDraft("check", delay_minutes=0),
+            ReminderDraft("check", day=date(2026, 10, 3)),
+            ReminderDraft("check", day=date(2026, 10, 5), daypart="sometime"),
+            ReminderDraft("check", day=date(2026, 10, 5), clock=time(9, 0, 1)),
+            ReminderDraft("check", day=date(2026, 10, 5), delay_minutes=10),
+        )
+        for update_id, draft in enumerate(invalid, start=20):
+            with self.subTest(draft=draft):
+                response = self.app.handle_draft(update_id, draft, self.now)
+                self.assertTrue(response)
+                self.assertEqual(self.repository.pending_personal(), ())
+
+    def test_typed_reminder_draft_requires_timezone_aware_now(self):
+        response = self.app.handle_draft(
+            50,
+            ReminderDraft("check", day=date(2026, 10, 5)),
+            datetime(2026, 10, 4, 6, 0),
+        )
+        self.assertTrue(response)
+        self.assertEqual(self.repository.pending_personal(), ())
+
+    def test_typed_reminder_draft_rejects_overflowing_delay_without_persisting(self):
+        for update_id, delay_minutes in ((51, 10**20), (52, 10**10)):
+            with self.subTest(delay_minutes=delay_minutes):
+                response = self.app.handle_draft(
+                    update_id,
+                    ReminderDraft("check", delay_minutes=delay_minutes),
+                    self.now,
+                )
+                self.assertTrue(response)
+                self.assertEqual(self.repository.pending_personal(), ())
+
+    def test_typed_reminder_draft_replay_is_idempotent(self):
+        draft = ReminderDraft("отправить файл", delay_minutes=60)
+        first = self.app.handle_draft(99, draft, self.now)
+        replay = self.app.handle_draft(
+            99, ReminderDraft("другой текст", delay_minutes=120), self.now
+        )
+        self.assertEqual(replay, first)
+        self.assertEqual(len(self.repository.pending_personal()), 1)
 
     def test_personal_reminders_are_deduplicated_cancellable_and_survive_repository_restart(self):
         first = self.app.handle_message(101, "Напомни завтра вечером забрать посылку", self.now)

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 
-from .models import ParsedReminder, ReminderParseError
+from .models import ParsedReminder, ReminderDraft, ReminderParseError
 
 _PREFIX = re.compile(r"^\s*(?:напомни(?:\s+мне)?|/remind(?:@\w+)?)\b", re.IGNORECASE)
 _RELATIVE = re.compile(
@@ -15,14 +15,22 @@ _RELATIVE = re.compile(
 _EXPLICIT_DATE = re.compile(r"\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{4}))?\b")
 _CLOCK = re.compile(r"\b(?:в|во)?\s*(\d{1,2}):(\d{2})\b", re.IGNORECASE)
 _CLOCK_HOUR = re.compile(r"\b(?:в|во)\s+(\d{1,2})(?![\d:])\b", re.IGNORECASE)
+_DAYPART_TIMES = {
+    "early_morning": time(7),
+    "morning": time(9),
+    "noon": time(13),
+    "afternoon": time(15),
+    "evening": time(19),
+    "night": time(22),
+}
 _DAYPARTS = (
-    (re.compile(r"\bрано\s+утром\b", re.IGNORECASE), time(7, 0)),
-    (re.compile(r"\b(?:в\s+)?обед\b", re.IGNORECASE), time(13, 0)),
-    (re.compile(r"\bпосле\s+обеда\b", re.IGNORECASE), time(15, 0)),
-    (re.compile(r"\bдн[её]м\b", re.IGNORECASE), time(15, 0)),
-    (re.compile(r"\bутром\b", re.IGNORECASE), time(9, 0)),
-    (re.compile(r"\bвечером\b", re.IGNORECASE), time(19, 0)),
-    (re.compile(r"\bночью\b", re.IGNORECASE), time(22, 0)),
+    (re.compile(r"\bрано\s+утром\b", re.IGNORECASE), "early_morning"),
+    (re.compile(r"\b(?:в\s+)?обед\b", re.IGNORECASE), "noon"),
+    (re.compile(r"\bпосле\s+обеда\b", re.IGNORECASE), "afternoon"),
+    (re.compile(r"\bдн[её]м\b", re.IGNORECASE), "afternoon"),
+    (re.compile(r"\bутром\b", re.IGNORECASE), "morning"),
+    (re.compile(r"\bвечером\b", re.IGNORECASE), "evening"),
+    (re.compile(r"\bночью\b", re.IGNORECASE), "night"),
 )
 _WEEKDAYS = {
     "понедельник": 0,
@@ -125,41 +133,25 @@ def parse_reminder(text: str, now: datetime) -> ParsedReminder | ReminderParseEr
 
     daypart_match = None
     daypart_time: time | None = None
-    for pattern, part_time in _DAYPARTS:
+    for pattern, part_name in _DAYPARTS:
         match = pattern.search(remaining)
         if match:
-            daypart_match, daypart_time = match, part_time
+            daypart_match, daypart_time = match, _DAYPART_TIMES[part_name]
             break
     if daypart_match:
         spans.append(daypart_match.span())
     if selected_time is None:
         selected_time = daypart_time or time(9, 0)
-    if (
-        daypart_time is None
-        and clock_match is None
-        and hour_match is None
-        and relative_delta
-        and relative_delta < timedelta(days=1)
-    ):
-        due_at = now + relative_delta
-    else:
-        assert selected_time is not None
-        if explicit_day is None:
-            target_day = (
-                (now + relative_delta).date()
-                if relative_delta and relative_delta >= timedelta(days=1)
-                else now.date()
-            )
-            due_at = datetime.combine(target_day, selected_time, now.tzinfo)
-            if due_at <= now:
-                due_at += timedelta(days=1)
-        else:
-            target_day = explicit_day.date()
-            if relative_delta and relative_delta >= timedelta(days=1):
-                target_day = (now + relative_delta).date()
-            due_at = datetime.combine(target_day, selected_time, now.tzinfo)
-    if due_at <= now:
-        return ReminderParseError("Это время уже прошло. Укажи будущую дату и время.")
+    due_at = _resolve_due_at(
+        now,
+        explicit_day,
+        selected_time,
+        daypart_time,
+        relative_delta,
+        explicit_clock=clock_match is not None or hour_match is not None,
+    )
+    if isinstance(due_at, ReminderParseError):
+        return due_at
 
     content = _remove_spans(remaining, spans)
     content = re.sub(r"^[\s,;:—–-]+|[\s,;:—–-]+$", "", content).strip()
@@ -167,6 +159,98 @@ def parse_reminder(text: str, now: datetime) -> ParsedReminder | ReminderParseEr
     if not content:
         return ReminderParseError("Напиши, о чём именно напомнить после даты и времени.")
     return ParsedReminder(content, due_at)
+
+
+def resolve_reminder_draft(
+    draft: ReminderDraft, now: datetime
+) -> ParsedReminder | ReminderParseError:
+    """Resolve a typed reminder request without parsing its text as a command."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        return ReminderParseError("Для напоминания требуется время с часовым поясом.")
+    content = draft.text.strip() if isinstance(draft.text, str) else ""
+    if not content:
+        return ReminderParseError("Напиши, о чём именно напомнить после даты и времени.")
+    if draft.day is not None and (
+        not isinstance(draft.day, date) or isinstance(draft.day, datetime)
+    ):
+        return ReminderParseError("Не распознал дату напоминания.")
+    if draft.day is not None and draft.delay_minutes is not None:
+        return ReminderParseError("Укажи дату или интервал, но не оба варианта сразу.")
+    if draft.clock is not None and (
+        not isinstance(draft.clock, time)
+        or draft.clock.second != 0
+        or draft.clock.microsecond != 0
+        or draft.clock.tzinfo is not None
+    ):
+        return ReminderParseError("Время должно быть указано без секунд в формате ЧЧ:ММ.")
+    if draft.daypart is not None and (
+        not isinstance(draft.daypart, str) or draft.daypart not in _DAYPART_TIMES
+    ):
+        return ReminderParseError("Не распознал часть дня для напоминания.")
+    if draft.delay_minutes is not None and (
+        type(draft.delay_minutes) is not int or draft.delay_minutes <= 0
+    ):
+        return ReminderParseError("Укажи положительный интервал для напоминания.")
+
+    try:
+        explicit_day = (
+            datetime.combine(draft.day, time.min, now.tzinfo) if draft.day is not None else None
+        )
+        relative_delta = (
+            timedelta(minutes=draft.delay_minutes) if draft.delay_minutes is not None else None
+        )
+        daypart_time = _DAYPART_TIMES.get(draft.daypart) if draft.daypart is not None else None
+        selected_time = draft.clock or daypart_time or time(9)
+        due_at = _resolve_due_at(
+            now,
+            explicit_day,
+            selected_time,
+            daypart_time,
+            relative_delta,
+            explicit_clock=draft.clock is not None,
+        )
+    except OverflowError:
+        return ReminderParseError("Укажи более короткий интервал для напоминания.")
+    if isinstance(due_at, ReminderParseError):
+        return due_at
+    return ParsedReminder(content, due_at)
+
+
+def _resolve_due_at(
+    now: datetime,
+    explicit_day: datetime | None,
+    selected_time: time,
+    daypart_time: time | None,
+    relative_delta: timedelta | None,
+    *,
+    explicit_clock: bool,
+) -> datetime | ReminderParseError:
+    if (
+        not explicit_clock
+        and daypart_time is None
+        and relative_delta is not None
+        and relative_delta < timedelta(days=1)
+        and explicit_day is None
+    ):
+        due_at = now + relative_delta
+    else:
+        if explicit_day is None:
+            target_day = (
+                (now + relative_delta).date()
+                if relative_delta is not None and relative_delta >= timedelta(days=1)
+                else now.date()
+            )
+            due_at = datetime.combine(target_day, selected_time, now.tzinfo)
+            if due_at <= now:
+                due_at += timedelta(days=1)
+        else:
+            target_day = explicit_day.date()
+            if relative_delta is not None and relative_delta >= timedelta(days=1):
+                target_day = (now + relative_delta).date()
+            due_at = datetime.combine(target_day, selected_time, now.tzinfo)
+    if due_at <= now:
+        return ReminderParseError("Это время уже прошло. Укажи будущую дату и время.")
+    return due_at
 
 
 def _remove_spans(text: str, spans: list[tuple[int, int]]) -> str:

@@ -9,13 +9,14 @@ from html import escape
 
 from .models import (
     ParsedReminder,
+    ReminderDraft,
     ReminderParseError,
     ReminderSendRejected,
     ReminderSendUncertain,
     TaskDeadline,
     TaskDigestSettings,
 )
-from .parser import is_reminder_request, parse_reminder
+from .parser import is_reminder_request, parse_reminder, resolve_reminder_draft
 from .ports import ReminderRepository, ReminderSender, TaskDeadlineSource
 
 _WEEKDAY_NAMES = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")
@@ -191,12 +192,25 @@ class ReminderApplication:
             return None
         result = parse_reminder(text, now)
         if isinstance(result, ReminderParseError):
-            return (
-                result.message
-                + "\nПримеры: «Напомни завтра вечером позвонить», «Напомни через 2 часа проверить духовку», «Напомни 12.10 в 16:30 отправить файл»."
-            )
+            return self._reminder_error(result)
         if not isinstance(result, ParsedReminder):
             return None
+        return self._save_personal_reminder(update_id, result, now)
+
+    def handle_draft(self, update_id: int, draft: ReminderDraft, now: datetime) -> str:
+        result = resolve_reminder_draft(draft, now)
+        if isinstance(result, ReminderParseError):
+            return self._reminder_error(result)
+        return self._save_personal_reminder(update_id, result, now)
+
+    @staticmethod
+    def _reminder_error(error: ReminderParseError) -> str:
+        return (
+            error.message
+            + "\nПримеры: «Напомни завтра вечером позвонить», «Напомни через 2 часа проверить духовку», «Напомни 12.10 в 16:30 отправить файл»."
+        )
+
+    def _save_personal_reminder(self, update_id: int, result: ParsedReminder, now: datetime) -> str:
         reminder = self.repository.create_personal(update_id, result.text, result.due_at, now)
         local_due = reminder.due_at.astimezone(now.tzinfo)
         return f"🔔 Напомню #{reminder.id}: {reminder.text}\n{local_due:%d.%m.%Y в %H:%M}.\nОтменить: `/cancelreminder {reminder.id}`"

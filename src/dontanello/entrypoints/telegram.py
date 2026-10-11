@@ -7,14 +7,19 @@ from datetime import datetime
 from typing import Any
 
 from dontanello.integrations.telegram.client import TelegramClient
-from dontanello.modules.calendar_planning import CalendarPlanningApplication, PlannerResponse
+from dontanello.modules.calendar_planning import (
+    CalendarPlanningApplication,
+    PlannerResponse,
+    PlanRequest,
+    TimeSlot,
+)
 from dontanello.modules.inbox import InboxCaptureApplication
 from dontanello.modules.message_intent import (
     MessageIntent,
     MessageIntentInterpreter,
     MessageIntentUnavailable,
 )
-from dontanello.modules.reminders import ReminderApplication
+from dontanello.modules.reminders import ReminderApplication, ReminderDraft
 from dontanello.modules.reports import (
     DeliveryService,
     Period,
@@ -306,9 +311,21 @@ class TelegramCommands:
     ) -> tuple[str, dict[str, Any] | None]:
         if self.planning is None:
             return "Планирование в Google Calendar пока не настроено. Ничего не менял.", None
-        response = self.planning.handle_message(update_id, intent.normalized_text, now)
-        if response is None:
+        extracted = intent.calendar
+        if extracted is None:
             return "Не получилось разобрать запрос для календаря. Ничего не менял.", None
+        fixed_slot = None
+        if extracted.start_time is not None and extracted.end_time is not None:
+            fixed_slot = TimeSlot(
+                datetime.combine(extracted.day, extracted.start_time, now.tzinfo),
+                datetime.combine(extracted.day, extracted.end_time, now.tzinfo),
+            )
+        response = self.planning.handle_request(
+            update_id,
+            intent.normalized_text,
+            PlanRequest(extracted.day, intent.title, extracted.duration_minutes, fixed_slot),
+            now,
+        )
         return response.text, _telegram_markup(response)
 
     def _save_reminder_intent(
@@ -316,7 +333,20 @@ class TelegramCommands:
     ) -> tuple[str, None]:
         if self.reminders is None:
             return "Напоминания пока не настроены. Ничего не записал.", None
-        text = self.reminders.handle_message(update_id, intent.normalized_text, now)
+        extracted = intent.reminder
+        if extracted is None:
+            return "Не получилось создать напоминание. Ничего не записал.", None
+        text = self.reminders.handle_draft(
+            update_id,
+            ReminderDraft(
+                intent.title,
+                extracted.day,
+                extracted.clock,
+                extracted.daypart,
+                extracted.delay_minutes,
+            ),
+            now,
+        )
         return text or "Не получилось создать напоминание. Ничего не записал.", None
 
     def _handle_callback(self, callback: dict[str, Any]) -> None:

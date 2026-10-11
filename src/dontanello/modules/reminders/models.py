@@ -33,6 +33,15 @@ class PersonalReminder:
 
 
 @dataclass(frozen=True)
+class ReminderDraft:
+    text: str
+    day: date | None = None
+    clock: time | None = None
+    daypart: str | None = None
+    delay_minutes: int | None = None
+
+
+@dataclass(frozen=True)
 class ParsedReminder:
     text: str
     due_at: datetime

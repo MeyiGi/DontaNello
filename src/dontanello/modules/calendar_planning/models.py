@@ -8,7 +8,7 @@ from datetime import date, datetime
 class PlanRequest:
     day: date
     title: str
-    duration_minutes: int
+    duration_minutes: int | None
     fixed_slot: "TimeSlot | None" = None
 
 
