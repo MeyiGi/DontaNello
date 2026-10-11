@@ -208,20 +208,22 @@ def _validate_configuration(
         raise ValueError("Повторная настройка одного чекбокса")
 
     planning = configuration.calendar_planning
-    if config_data.get("calendar_planning"):
-        if time.fromisoformat(planning.day_start) >= time.fromisoformat(planning.day_end):
-            raise ValueError("calendar_planning.day_start должен быть раньше day_end")
+    if config_data.get("calendar_planning") and time.fromisoformat(
+        planning.day_start
+    ) >= time.fromisoformat(planning.day_end):
+        raise ValueError("calendar_planning.day_start должен быть раньше day_end")
 
-    if config_data.get("inbox"):
-        if not configuration.inbox.data_source_id or not configuration.inbox.title_property:
-            raise ValueError("Некорректные настройки inbox")
+    if config_data.get("inbox") and (
+        not configuration.inbox.data_source_id or not configuration.inbox.title_property
+    ):
+        raise ValueError("Некорректные настройки inbox")
 
-    if config_data.get("reminders"):
-        reminders = configuration.reminders
-        if len(set(reminders.weekdays)) != len(reminders.weekdays):
-            raise ValueError("reminders.weekdays должен содержать уникальные дни от 0 до 6")
-        if reminders.notion_tasks is None:
-            raise ValueError("Некорректные настройки reminders.notion_tasks")
+    reminders_enabled = bool(config_data.get("reminders"))
+    reminders = configuration.reminders
+    if reminders_enabled and len(set(reminders.weekdays)) != len(reminders.weekdays):
+        raise ValueError("reminders.weekdays должен содержать уникальные дни от 0 до 6")
+    if reminders_enabled and reminders.notion_tasks is None:
+        raise ValueError("Некорректные настройки reminders.notion_tasks")
 
     if configuration.reports.enabled and not configuration.reports.sources:
         raise ValueError("Отчёты требуют sources")
