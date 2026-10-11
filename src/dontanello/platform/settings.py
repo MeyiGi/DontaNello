@@ -129,43 +129,11 @@ class Settings:
     weather_city: str = field(default="", repr=False)
 
 
-@dataclass(frozen=True)
-class _RuntimeValues:
-    notion_token: str = field(repr=False)
-    telegram_token: str = field(repr=False)
-    timezone: ZoneInfo
-    poll_seconds: int
-    telegram_chat_id: str = field(repr=False)
-    groq_api_key: str = field(repr=False)
-    groq_model: str
-    groq_api_keys: tuple[str, ...] = field(repr=False)
-    groq_planning_api_key: str = field(repr=False)
-    groq_planning_model: str
-    calendar_secret_file: Path | None = field(repr=False)
-    weather_city: str = field(repr=False)
-
-
 def load_settings(root: Path) -> Settings:
     environment = _read_environment(root)
     config_data, configuration = _read_configuration(root)
     _validate_configuration(config_data, configuration, environment)
-    values = _resolve_runtime_values(root, config_data, configuration, environment)
-    return Settings(
-        root=root,
-        notion_token=values.notion_token,
-        telegram_token=values.telegram_token,
-        timezone=values.timezone,
-        poll_seconds=values.poll_seconds,
-        config=config_data,
-        telegram_chat_id=values.telegram_chat_id,
-        groq_api_key=values.groq_api_key,
-        groq_model=values.groq_model,
-        groq_api_keys=values.groq_api_keys,
-        groq_planning_api_key=values.groq_planning_api_key,
-        groq_planning_model=values.groq_planning_model,
-        google_calendar_client_secret_file=values.calendar_secret_file,
-        weather_city=values.weather_city,
-    )
+    return _build_settings(root, config_data, configuration, environment)
 
 
 def _read_environment(root: Path) -> dict[str, str]:
@@ -232,12 +200,12 @@ def _validate_configuration(
         raise ValueError("WEATHER_CITY не задан для включённой погоды")
 
 
-def _resolve_runtime_values(
+def _build_settings(
     root: Path,
     config_data: dict[str, Any],
     configuration: _Configuration,
     environment: dict[str, str],
-) -> _RuntimeValues:
+) -> Settings:
     chat_id = environment.get("TELEGRAM_CHAT_ID", "").strip()
     if chat_id:
         try:
@@ -284,17 +252,19 @@ def _resolve_runtime_values(
     else:
         calendar_secret_file = None
 
-    return _RuntimeValues(
+    return Settings(
+        root=root,
         notion_token=environment["NOTION_TOKEN"],
         telegram_token=environment.get("TELEGRAM_BOT_TOKEN", ""),
         timezone=ZoneInfo(environment.get("TIMEZONE", "Asia/Bishkek")),
         poll_seconds=max(5, int(environment.get("POLL_SECONDS", "30"))),
+        config=config_data,
         telegram_chat_id=chat_id,
         groq_api_key=groq_api_key,
         groq_model=groq_model,
         groq_api_keys=groq_api_keys,
         groq_planning_api_key=groq_planning_api_key,
         groq_planning_model=groq_planning_model,
-        calendar_secret_file=calendar_secret_file,
+        google_calendar_client_secret_file=calendar_secret_file,
         weather_city=environment.get("WEATHER_CITY", "").strip(),
     )
