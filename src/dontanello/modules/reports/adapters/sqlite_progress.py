@@ -5,23 +5,17 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
+from cattrs.preconf.json import make_converter
+
 from ..models import Period
-from ..progress_models import (
-    AnalysisMetrics,
-    Citation,
-    Evidence,
-    Finding,
-    HistoricalContext,
-    ProgressDocument,
-    ReportSection,
-)
+from ..progress_models import Evidence, HistoricalContext, ProgressDocument
 
 _SCHEMA_VERSION = 1
 _HISTORY_DAYS = 366
+_JSON_CONVERTER = make_converter()
 
 
 class SQLiteProgressArchive:
@@ -172,133 +166,18 @@ def _document_key(document: ProgressDocument) -> tuple[str, date, date]:
 
 
 def _encode(document: ProgressDocument) -> str:
-    return json.dumps(
-        {
-            "schema_version": document.schema_version,
-            "analysis_metrics": asdict(document.analysis_metrics)
-            if document.analysis_metrics
-            else None,
-            "strategy_version": document.strategy_version,
-            "period": {
-                "kind": document.period.kind,
-                "start": document.period.start.isoformat(),
-                "end": document.period.end.isoformat(),
-            },
-            "title": document.title,
-            "generated_at": document.generated_at.isoformat(),
-            "sections": [
-                {
-                    "key": section.key,
-                    "title": section.title,
-                    "note": section.note,
-                    "findings": [_finding_dict(finding) for finding in section.findings],
-                }
-                for section in document.sections
-            ],
-            "evidence": [
-                {
-                    "id": item.id,
-                    "source_id": item.source_id,
-                    "project": item.project,
-                    "occurred_on": item.occurred_on.isoformat(),
-                    "recorded_at": item.recorded_at,
-                    "text": item.text,
-                    "source_kind": item.source_kind,
-                    "url": item.url,
-                    "source_ids": list(item.source_ids),
-                    "event_type": item.event_type,
-                    "first_recorded_at": item.first_recorded_at,
-                    "observation_count": item.observation_count,
-                }
-                for item in document.evidence
-            ],
-        },
+    return _JSON_CONVERTER.dumps(
+        document,
         ensure_ascii=False,
         separators=(",", ":"),
     )
-
-
-def _finding_dict(finding: Finding) -> dict[str, object]:
-    return {
-        "kind": finding.kind,
-        "project": finding.project,
-        "text": finding.text,
-        "citations": [
-            {"evidence_id": citation.evidence_id, "quote": citation.quote}
-            for citation in finding.citations
-        ],
-        "before": finding.before,
-        "action": finding.action,
-        "after": finding.after,
-        "before_ids": list(finding.before_ids),
-        "after_ids": list(finding.after_ids),
-        "area": finding.area,
-        "status": finding.status,
-        "confidence": finding.confidence,
-    }
 
 
 def _decode(payload: str) -> ProgressDocument:
     value = json.loads(payload)
     if value.get("schema_version") != 1:
         raise RuntimeError("Unsupported progress document schema version")
-    period = value["period"]
-    return ProgressDocument(
-        period=Period(
-            kind=period["kind"],
-            start=date.fromisoformat(period["start"]),
-            end=date.fromisoformat(period["end"]),
-        ),
-        title=value["title"],
-        sections=tuple(
-            ReportSection(
-                key=section["key"],
-                title=section["title"],
-                note=section["note"],
-                findings=tuple(
-                    Finding(
-                        kind=finding["kind"],
-                        project=finding["project"],
-                        text=finding["text"],
-                        citations=tuple(
-                            Citation(citation["evidence_id"], citation["quote"])
-                            for citation in finding["citations"]
-                        ),
-                        before=finding["before"],
-                        action=finding["action"],
-                        after=finding["after"],
-                        before_ids=tuple(finding["before_ids"]),
-                        after_ids=tuple(finding["after_ids"]),
-                        area=finding["area"],
-                        status=finding.get("status", ""),
-                        confidence=finding.get("confidence", "medium"),
-                    )
-                    for finding in section["findings"]
-                ),
-            )
-            for section in value["sections"]
-        ),
-        evidence=tuple(
-            Evidence(
-                id=item["id"],
-                source_id=item["source_id"],
-                project=item["project"],
-                occurred_on=date.fromisoformat(item["occurred_on"]),
-                recorded_at=item["recorded_at"],
-                text=item["text"],
-                source_kind=item["source_kind"],
-                url=item["url"],
-                source_ids=tuple(item.get("source_ids", ())),
-                event_type=item.get("event_type", "observation"),
-                first_recorded_at=item.get("first_recorded_at", ""),
-                observation_count=item.get("observation_count", 1),
-            )
-            for item in value["evidence"]
-        ),
-        generated_at=datetime.fromisoformat(value["generated_at"]),
-        strategy_version=value["strategy_version"],
-        schema_version=value["schema_version"],
-        analysis_metrics=AnalysisMetrics(**value["analysis_metrics"])
-        if value.get("analysis_metrics")
-        else None,
-    )
+    # Older archives treated any empty/falsy metrics object as absent.
+    if not value.get("analysis_metrics"):
+        value["analysis_metrics"] = None
+    return _JSON_CONVERTER.structure(value, ProgressDocument)

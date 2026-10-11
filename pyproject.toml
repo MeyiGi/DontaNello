@@ -8,13 +8,29 @@ version = "0.1.0"
 description = "Modular personal automation assistant"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["google-auth>=2.35,<3", "google-auth-oauthlib>=1.2,<2"]
+dependencies = [
+    "google-auth>=2.35,<3",
+    "google-auth-oauthlib>=1.2,<2",
+    "cattrs==26.2.1",
+    "msgspec==0.22.0",
+]
 
 [project.scripts]
 dontanello = "dontanello.entrypoints.cli:main"
 
 [project.optional-dependencies]
-dev = ["ruff>=0.9,<1", "mypy>=1.14,<2"]
+dev = [
+    "ruff>=0.9,<1",
+    "mypy>=1.14,<2",
+    "vulture==2.16",
+    "import-linter==2.15",
+    # Last release supporting the project's Python 3.10 minimum.
+    "hypothesis==6.168.5",
+    "dirty-equals==0.11",
+    "vcrpy==8.3.0",
+]
+diagnostics = ["cognitive-complexity==1.3.0"]
+parsing-experiment = ["timesense==1.1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -36,3 +52,30 @@ files = ["src"]
 check_untyped_defs = true
 disallow_untyped_defs = true
 warn_unused_ignores = true
+
+[tool.importlinter]
+root_package = "dontanello"
+
+[[tool.importlinter.contracts]]
+name = "Infrastructure does not depend on capabilities or entrypoints"
+type = "forbidden"
+source_modules = ["dontanello.integrations", "dontanello.platform"]
+forbidden_modules = ["dontanello.modules", "dontanello.entrypoints", "dontanello.bootstrap"]
+
+[[tool.importlinter.contracts]]
+name = "Package dependencies are acyclic"
+type = "acyclic_siblings"
+# CLI imports bootstrap, which composes the worker and Telegram entrypoints.
+# Check their children rather than declaring that intentional package shape a cycle.
+ancestors = [
+    "dontanello.modules",
+    "dontanello.integrations",
+    "dontanello.platform",
+    "dontanello.entrypoints",
+]
+
+[[tool.importlinter.contracts]]
+name = "Composition does not depend on the CLI launcher"
+type = "forbidden"
+source_modules = ["dontanello.bootstrap"]
+forbidden_modules = ["dontanello.entrypoints.cli"]

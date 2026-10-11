@@ -5,6 +5,9 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 from dontanello.modules.completion import CompletionTracker
 from dontanello.modules.completion.adapters.json_state import JsonCheckboxState
 from dontanello.modules.completion.adapters.notion import (
@@ -78,3 +81,23 @@ class JsonStateTests(unittest.TestCase):
                 state.record("key", True)
         self.assertFalse(state.get("key"))
         self.assertFalse(JsonCheckboxState(self.path).get("key"))
+
+    @given(
+        initial=st.dictionaries(st.text(), st.booleans(), max_size=12),
+        key=st.text(),
+        checked=st.booleans(),
+    )
+    def test_record_round_trips_boolean_state_and_repeated_values_are_idempotent(
+        self, initial, key, checked
+    ):
+        self.path.write_text(json.dumps(initial))
+        state = JsonCheckboxState(self.path)
+        expected = {**initial, key: checked}
+
+        state.record(key, checked)
+
+        self.assertEqual(state.values, expected)
+        self.assertEqual(JsonCheckboxState(self.path).values, expected)
+        persisted = self.path.read_text()
+        state.record(key, checked)
+        self.assertEqual(self.path.read_text(), persisted)

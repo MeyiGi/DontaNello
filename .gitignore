@@ -8,6 +8,8 @@ client_secret_*.json
 .codegraph/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+.import_linter_cache/
 *.egg-info/
 build/
 dist/

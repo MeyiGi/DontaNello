@@ -1,0 +1,23 @@
+interactions:
+- request:
+    body: null
+    headers:
+      Authorization:
+      - '[REDACTED]'
+      Content-type:
+      - application/json
+      Notion-version:
+      - '2025-09-03'
+    method: GET
+    uri: https://api.notion.com/v1/users/me
+  response:
+    body:
+      string: !!binary |
+        eyJvYmplY3QiOiJ1c2VyIiwiaWQiOiJbUkVEQUNURURdIiwidHlwZSI6InBlcnNvbiIsIm5hbWUiOiJbUkVEQUNURURdIiwiYXZhdGFyX3VybCI6IltSRURBQ1RFRF0iLCJwZXJzb24iOnsiZW1haWwiOiJbUkVEQUNURURdIn19
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

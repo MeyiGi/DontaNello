@@ -36,14 +36,15 @@ pyproject.toml          # пакет, инструменты и зависимо
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
-make check              # Ruff + mypy + все тесты
-make test               # тесты, включая архитектурные, без сети
+.venv/bin/python -m pip install -e '.[dev,diagnostics]'
+make check              # Ruff + mypy + Import Linter + тесты + Vulture diagnostics
+make test               # тесты без внешних API; HTTP fixtures используют localhost
+make diagnostics        # Vulture и cognitive complexity; без порогов качества
 make format             # форматирование и исправления Ruff
 .venv/bin/dontanello --check --root "$PWD"
 ```
 
-Python-код установлен из `src/`. При запуске установленного CLI из другой папки указывайте `--root` с каталогом конфигурации и `.env`. Google Calendar использует `google-auth` и `google-auth-oauthlib`; остальные API используют стандартную библиотеку. Ruff и mypy нужны для разработки. Systemd запускает совместимый `assistant.py` через `.venv/bin/python`.
+Python-код установлен из `src/`. При запуске установленного CLI из другой папки указывайте `--root` с каталогом конфигурации и `.env`. Google Calendar использует `google-auth` и `google-auth-oauthlib`; остальные API используют стандартную библиотеку. Инструменты разработки и их ограничения описаны в [dependency modernization](docs/dependency-modernization.md); production-зависимости ими не расширяются. Systemd запускает совместимый `assistant.py` через `.venv/bin/python`.
 
 Включите проверку секретов: `git config core.hooksPath .githooks`. Перед коммитом и отправкой запускайте `python3 scripts/check_secrets.py`; при ошибке остановитесь и уберите секреты из индекса. В `.env.example` поля токенов всегда пустые.
 

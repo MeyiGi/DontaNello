@@ -1,9 +1,13 @@
+import json
 import sqlite3
 import tempfile
 import unittest
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from dontanello.modules.reports.adapters.sqlite_progress import SQLiteProgressArchive
 from dontanello.modules.reports.models import Period
@@ -102,6 +106,142 @@ class ProgressArchiveContractTests(unittest.TestCase):
         self.assertEqual(saved.generated_at, expected.generated_at)
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.path.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_new_payload_matches_legacy_v1_json_object(self) -> None:
+        expected = document("week", date(2026, 9, 7), date(2026, 9, 14), "source-1")
+        expected = replace(
+            expected,
+            title="Недельный отчет",
+            sections=(
+                replace(
+                    expected.sections[0],
+                    title="Результаты",
+                    findings=(replace(expected.sections[0].findings[0], text="Завершён этап 🚀"),),
+                ),
+            ),
+            evidence=(
+                replace(expected.evidence[0], text="Исходная цитата: готово.", project="Проект"),
+            ),
+            analysis_metrics=AnalysisMetrics(
+                model="model-x",
+                reasoning="medium",
+                api_requests=1,
+                input_tokens=600,
+                output_tokens=200,
+                cached_input_tokens=500,
+            ),
+        )
+        self.archive.save("personal", expected)
+
+        with sqlite3.connect(self.path) as connection:
+            payload = connection.execute(
+                "SELECT payload FROM progress_document WHERE scope = ?", ("personal",)
+            ).fetchone()[0]
+        legacy = json.loads(
+            (Path(__file__).parents[1] / "fixtures" / "progress_archive_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(json.loads(payload), legacy)
+        self.assertIn("Недельный отчет", payload)
+        self.assertEqual(
+            payload,
+            json.dumps(json.loads(payload), ensure_ascii=False, separators=(",", ":")),
+        )
+
+    def test_legacy_v1_payload_keeps_defaults_for_missing_optional_fields(self) -> None:
+        legacy = json.loads(
+            (Path(__file__).parents[1] / "fixtures" / "progress_archive_v1.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        del legacy["analysis_metrics"]
+        legacy["future_field"] = "ignored"
+        finding = legacy["sections"][0]["findings"][0]
+        del finding["status"]
+        del finding["confidence"]
+        legacy["sections"][0]["future_field"] = "ignored"
+        evidence = legacy["evidence"][0]
+        del evidence["source_ids"]
+        del evidence["event_type"]
+        del evidence["first_recorded_at"]
+        del evidence["observation_count"]
+        period = Period(
+            "week",
+            date.fromisoformat(legacy["period"]["start"]),
+            date.fromisoformat(legacy["period"]["end"]),
+        )
+        self.archive.save("personal", document("week", period.start, period.end, "placeholder"))
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                "UPDATE progress_document SET payload = ? WHERE scope = ?",
+                (json.dumps(legacy), "personal"),
+            )
+
+        restored = self.archive.get("personal", period)
+
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertIsNone(restored.analysis_metrics)
+        self.assertEqual(restored.sections[0].findings[0].status, "")
+        self.assertEqual(restored.sections[0].findings[0].confidence, "medium")
+        self.assertEqual(restored.evidence[0].source_ids, ())
+        self.assertEqual(restored.evidence[0].event_type, "observation")
+        self.assertEqual(restored.evidence[0].first_recorded_at, "")
+        self.assertEqual(restored.evidence[0].observation_count, 1)
+
+        legacy["analysis_metrics"] = {}
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                "UPDATE progress_document SET payload = ? WHERE scope = ?",
+                (json.dumps(legacy), "personal"),
+            )
+        restored_empty_metrics = self.archive.get("personal", period)
+        assert restored_empty_metrics is not None
+        self.assertIsNone(restored_empty_metrics.analysis_metrics)
+
+    @settings(max_examples=24, deadline=None)
+    @given(
+        day_offset=st.integers(min_value=0, max_value=300),
+        metadata=st.text(max_size=24),
+        source_ids=st.lists(st.text(max_size=12), max_size=3),
+        observations=st.integers(min_value=1, max_value=100),
+    )
+    def test_nested_metadata_round_trips(
+        self,
+        day_offset: int,
+        metadata: str,
+        source_ids: list[str],
+        observations: int,
+    ) -> None:
+        start = date(2026, 1, 1) + timedelta(days=day_offset)
+        expected = document("week", start, start + timedelta(days=7), f"source-{day_offset}")
+        expected = replace(
+            expected,
+            sections=(
+                replace(
+                    expected.sections[0],
+                    findings=(replace(expected.sections[0].findings[0], status=metadata),),
+                ),
+            ),
+            evidence=(
+                replace(
+                    expected.evidence[0],
+                    source_ids=tuple(source_ids),
+                    event_type=metadata,
+                    first_recorded_at=metadata,
+                    observation_count=observations,
+                ),
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            archive = SQLiteProgressArchive(Path(directory) / "progress.sqlite3")
+
+            archive.save("personal", expected)
+
+            self.assertEqual(archive.get("personal", expected.period), expected)
 
     def test_save_is_first_write_wins_for_scope_and_period(self):
         first = document("week", date(2026, 9, 7), date(2026, 9, 14), "first")

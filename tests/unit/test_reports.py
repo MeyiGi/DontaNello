@@ -1,5 +1,9 @@
 import unittest
-from datetime import date
+from calendar import monthrange
+from datetime import date, timedelta
+
+from hypothesis import given
+from hypothesis import strategies as st
 
 from dontanello.modules.reports import (
     Period,
@@ -12,6 +16,33 @@ from dontanello.modules.reports.application import render_report
 
 
 class ReportPeriodTests(unittest.TestCase):
+    @given(
+        today=st.dates(min_value=date(2, 1, 1), max_value=date(9998, 12, 31)),
+        weekday=st.integers(min_value=0, max_value=6),
+    )
+    def test_previous_week_is_a_complete_week_ending_on_the_latest_weekday(self, today, weekday):
+        period = previous_week(today, weekday)
+
+        self.assertEqual(period.kind, "week")
+        self.assertEqual(period.end - period.start, timedelta(days=7))
+        self.assertEqual(period.end.weekday(), weekday)
+        self.assertLessEqual(period.end, today)
+        self.assertLess(today, period.end + timedelta(days=7))
+
+    @given(today=st.dates(min_value=date(2, 1, 1), max_value=date(9998, 12, 31)))
+    def test_previous_month_is_the_adjacent_complete_calendar_month(self, today):
+        period = previous_month(today)
+
+        self.assertEqual(period.kind, "month")
+        self.assertEqual(period.end, today.replace(day=1))
+        self.assertEqual(period.start.day, 1)
+        self.assertEqual(
+            period.end.year * 12 + period.end.month - (period.start.year * 12 + period.start.month),
+            1,
+        )
+        days_in_previous_month = monthrange(period.start.year, period.start.month)[1]
+        self.assertEqual((period.end - period.start).days, days_in_previous_month)
+
     def test_previous_week_is_full_monday_to_monday_across_year_boundary(self):
         self.assertEqual(
             previous_week(date(2026, 1, 1)),

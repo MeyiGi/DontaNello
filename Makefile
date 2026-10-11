@@ -1,7 +1,7 @@
-.PHONY: test lint format typecheck check
+.PHONY: test lint format typecheck architecture deadcode complexity diagnostics check
 
 test:
-	PYTHONPATH=src python3 -m unittest discover -s tests -v
+	PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 
 lint:
 	.venv/bin/ruff check .
@@ -14,4 +14,15 @@ format:
 typecheck:
 	.venv/bin/mypy
 
-check: lint typecheck test
+architecture:
+	PYTHONPATH=src .venv/bin/lint-imports --no-cache
+
+deadcode:
+	.venv/bin/python scripts/quality_diagnostics.py deadcode
+
+complexity:
+	.venv/bin/python scripts/quality_diagnostics.py complexity
+
+diagnostics: deadcode complexity
+
+check: lint typecheck architecture test deadcode
