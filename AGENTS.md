@@ -11,10 +11,54 @@ This is a lifelong, extensible personal automation assistant. Maintainability an
 
 # Agent orchestration
 
-- The primary agent owns architecture, contracts, decomposition, review, integration, checks and user communication. Use `gpt-6.1-sol` focused subagents only when independent work and separate context improve quality or time; never create a fixed swarm or mandatory verifier.
-- Sol is the requested development-agent intelligence layer. Delegate bounded tasks with explicit ownership and acceptance checks; synthesize findings at root and use targeted follow-up when evidence is questionable. Do not silently switch models when unavailable.
-- Development-agent delegation and deployed report analysis are distinct. Runtime reports use the existing Groq credentials and configured Groq model; do not require an OpenAI API key or native multi-agent API. Small inputs use one analysis request with bounded corrections; large periods use bounded sequential batches and final synthesis with the same citation guards. Every current fact reaches analysis; validated results are saved before stopping. Batches are not agents.
-- Read docs/architecture.md. Preserve evidence, authorization and storage boundaries. Keep orchestration, progress intelligence and presentation separate.
+The primary agent owns requirements, architecture, contracts, integration,
+final implementation decisions, verification and user communication.
+
+For complex tasks, proactively use up to 3 parallel focused subagents when
+independent work can materially improve speed or quality.
+
+Good parallel tasks include:
+
+- exploring separate parts of the codebase;
+- investigating independent failure hypotheses;
+- identifying relevant tests and edge cases;
+- comparing architecture or implementation approaches;
+- researching reuse of existing project functionality or mature libraries;
+- reviewing independent risk areas.
+
+Use a fan-out / fan-in pattern:
+
+ROOT
+→ parallel bounded investigations
+→ synthesize findings
+→ choose one coherent implementation
+→ verify
+→ review
+
+Do not create a fixed swarm for every task.
+
+Do not use multiple agents when:
+- the task is small;
+- each step depends directly on the previous step;
+- agents would frequently edit the same files or mutable state;
+- parallelism would add more coordination cost than useful work.
+
+Prefer one implementation owner for a cohesive change.
+
+For unusually complex or high-risk changes, independent worktree agents may
+explore competing implementations. In that case, compare the alternatives
+against the same acceptance criteria and select the simplest correct approach
+rather than blindly merging all implementations.
+
+Subagents must receive:
+- a bounded objective;
+- relevant context;
+- explicit ownership;
+- expected output;
+- acceptance or evidence requirements.
+
+The root agent must synthesize subagent findings rather than merely concatenate
+their responses.ф
 
 # Architecture rules
 
@@ -44,6 +88,13 @@ This is a lifelong, extensible personal automation assistant. Maintainability an
 - Authorization checks for Telegram must precede private reads and actions. Never log tokens or include them in committed files or test fixtures.
 - Future group features must use explicit chat-specific capabilities and separate data scopes. A couple's group must never inherit personal task/work commands, Notion access or report destinations. Enforce this in application authorization before data reads; keep LLM context scoped to the authorized chat. Group support is not currently implemented.
 - `.env.example` must contain empty credential fields. Before each commit/push, run `rtk proxy python3 scripts/check_secrets.py --staged` and stop immediately on any failure; never continue to commit/push after a failed secret check. Enable the local hook with `rtk git config core.hooksPath .githooks`.
+- After a completed and validated task, create a focused Git commit for the
+  task unless the user explicitly asks not to commit.
+- Before committing or pushing, run the required secret check and stop on failure.
+- Push the completed commit when the current branch has a configured upstream
+  and pushing is part of the normal project workflow. Never force-push unless
+  explicitly requested.
+- Never include unrelated pre-existing working-tree changes in the task commit.
 - Default personal reports must explain meaningful progress and results, group repeated records by project, and distinguish activity from completion. Use the configured Groq progress analyzer; do not silently substitute a row dump or fabricate accomplishments. `/week full` and `/month full` remain explicit raw diagnostics.
 - Progress reviews use the shared fact pipeline and separate report strategies. Preserve source evidence and exact citations in the scoped archive; prior generated prose is never independent evidence. Keep progress, learning and comparisons before blockers and next steps. Never turn ideas, intentions or suspected causes into completed results. When historical data is missing, state the gap; do not invent a baseline or infer a personality change. Preserve period/delivery identities when evolving report formats.
 - LLMs, if added, propose actions through explicit application contracts; permission checks and execution stay deterministic. Existing user authorization governs whether confirmation is needed.
@@ -57,3 +108,7 @@ This is a lifelong, extensible personal automation assistant. Maintainability an
 - Record consequential architectural decisions and reasons in docs/decisions; update architecture docs when boundaries change. Do not add an ADR for every small edit.
 - Preserve `state/checkboxes.json`, its existing keys, `.env`, existing service entrypoint and configured field names during migration. Use a tested migration if formats change. Do not reset the live baseline.
 - Finish with what changed, validation performed and material limitations. Distinguish implemented architecture from planned architecture.
+- Durable product requirements live under `docs/spec/`. Use
+  `docs/spec/README.md` to locate the owning capability specification.
+  Update the relevant spec when agreed observable behavior changes; do not
+  create tiny per-function specs or duplicate requirements across files.
