@@ -27,7 +27,7 @@ class ProgressRuntimeTests(unittest.TestCase):
                 telegram_chat_id="123",
                 weather_city="Bishkek, Kyrgyzstan",
             )
-            with patch("dontanello.bootstrap.TelegramClient"):
+            with patch("dontanello.bootstrap.jobs.TelegramClient"):
                 runtime = build_runtime(settings)
                 jobs = runtime.jobs()
 
@@ -49,7 +49,7 @@ class ProgressRuntimeTests(unittest.TestCase):
                 groq_planning_api_key="planning-primary",
                 groq_api_keys=("primary", "fallback"),
             )
-            with patch("dontanello.bootstrap.GroqClient") as client_factory:
+            with patch("dontanello.bootstrap.services.GroqClient") as client_factory:
                 runtime = build_runtime(settings)
 
         client_factory.assert_called_once_with(
@@ -75,7 +75,9 @@ class ProgressRuntimeTests(unittest.TestCase):
             )
             application = Mock()
             application.report.return_value = "structured progress review"
-            with patch("dontanello.bootstrap.ProgressReports", return_value=application) as factory:
+            with patch(
+                "dontanello.bootstrap.services.ProgressReports", return_value=application
+            ) as factory:
                 runtime = build_runtime(settings)
             self.assertEqual(factory.call_args.args[3], "123")
             self.assertEqual(factory.call_args.kwargs["clock"]().tzinfo, settings.timezone)

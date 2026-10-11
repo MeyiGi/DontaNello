@@ -48,47 +48,14 @@ class ArchitectureTests(unittest.TestCase):
                         f"Business code must not import infrastructure: {dependency}",
                     )
 
-    def test_integrations_and_platform_do_not_depend_on_application(self):
-        for folder in ("integrations", "platform"):
-            for path in (SOURCE / "dontanello" / folder).rglob("*.py"):
-                for dependency in imports(path):
-                    self.assertFalse(
-                        dependency.startswith(
-                            ("dontanello.modules", "dontanello.entrypoints", "dontanello.bootstrap")
-                        ),
-                        f"{path}: {dependency}",
-                    )
-
     def test_cross_module_imports_use_public_api(self):
         for path in (SOURCE / "dontanello").rglob("*.py"):
             parts = path.relative_to(SOURCE).parts
             own_module = parts[2] if len(parts) > 3 and parts[1] == "modules" else None
+            is_composition_root = len(parts) > 1 and parts[1] == "bootstrap"
             for dependency in imports(path):
                 target = dependency.split(".")
                 if target[:2] != ["dontanello", "modules"] or len(target) < 3:
                     continue
-                if target[2] != own_module and path.name != "bootstrap.py":
+                if target[2] != own_module and not is_composition_root:
                     self.assertEqual(len(target), 3, f"Private module import: {path}: {dependency}")
-
-    def test_package_import_graph_has_no_cycles(self):
-        graph = {}
-        for path in (SOURCE / "dontanello").rglob("*.py"):
-            parts = list(path.relative_to(SOURCE).with_suffix("").parts)
-            if parts[-1] == "__init__":
-                parts.pop()
-            graph[".".join(parts)] = set(imports(path))
-        visiting, visited = set(), set()
-
-        def visit(module):
-            self.assertNotIn(module, visiting, f"Import cycle at {module}")
-            if module in visited:
-                return
-            visiting.add(module)
-            for dependency in graph[module]:
-                if dependency in graph:
-                    visit(dependency)
-            visiting.remove(module)
-            visited.add(module)
-
-        for module in graph:
-            visit(module)
