@@ -61,11 +61,11 @@ def main(root: Path | None = None) -> None:
         client.authorize()
         print("Google Calendar подключён. Токен сохранён локально с приватными правами.")
         return
-    runtime = build_runtime(settings)
     if args.check:
-        runtime.check()
+        build_runtime(settings, check_only=True).check()
         return
     if args.preview_report:
+        runtime = build_runtime(settings)
         today = runtime.now().date()
         weekday = settings.config.get("reports", {}).get("weekly_weekday", 0)
         period = (
@@ -76,6 +76,7 @@ def main(root: Path | None = None) -> None:
         print(runtime.report(period, full=args.full))
         return
     with worker_lock(settings.root / "state" / "worker.lock"):
+        runtime = build_runtime(settings)
         run_worker(
             runtime.jobs(), settings.poll_seconds, args.once, runtime.failed, runtime.recovered
         )

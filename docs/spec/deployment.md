@@ -12,6 +12,14 @@ Calendar OAuth authorization is a one-time host-network operation on Linux, beca
 
 Do not include `.env`, `secrets/`, or `state/` in an image, Git commit, or unencrypted backup. Back up the state directory while the service is stopped; it contains private personal records and the OAuth token. Container logs are limited to three rotated 10 MiB files.
 
+## Local worker lifecycle
+
+Normal and `--once` worker startup acquire `state/worker.lock` before constructing writable application journals or recovering interrupted operations. A concurrent worker using the same state directory fails before initializing those journals or changing their outcomes. The operating system releases the lock when its owner exits, including an abrupt process termination.
+
+Only the worker startup path performs Inbox and task-capture recovery. Interrupted external writes become `uncertain`, preserving the existing policy against automatic duplicate creation; completed outcomes remain unchanged on subsequent startups. Runtime construction alone does not recover writes, and report preview does not perform worker recovery.
+
+`--check` builds only connection-check dependencies. Successful or failed checks do not create application state, change database permissions, recover writes, or take the worker lock, so checks can run beside an active worker. Checks still perform configured read-only external connection/schema requests. Calendar OAuth authorization remains an explicit separate operation.
+
 ## Non-goals
 
 - Running multiple bot replicas against the same Telegram bot token or state directory.

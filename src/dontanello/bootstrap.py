@@ -138,6 +138,11 @@ class Runtime:
             print("Groq planning: " + self.settings.groq_planning_model + " OK")
 
     def jobs(self) -> list[Job]:
+        """Initialize worker state and jobs while the caller holds worker_lock."""
+        if self.inbox_app is not None:
+            self.inbox_app.recover_inflight()
+        if self.task_capture_app is not None:
+            self.task_capture_app.recover_inflight()
         state = JsonCheckboxState(self.settings.root / "state" / "checkboxes.json")
         clock = LocalClock(self.settings.timezone)
         jobs = [
@@ -334,7 +339,7 @@ class Runtime:
             self.outcomes.put((job, False, self.now()))
 
 
-def build_runtime(settings: Settings) -> Runtime:
+def build_runtime(settings: Settings, *, check_only: bool = False) -> Runtime:
     client = NotionClient(settings.notion_token)
     sources = [
         NotionCompletionSource(client, NotionCompletionConfig(**source))
@@ -359,6 +364,9 @@ def build_runtime(settings: Settings) -> Runtime:
             client, NotionTaskConfig(**notion_task_config), settings.timezone
         )
     runtime = Runtime(settings, sources, report_sources, task_deadline_source=task_deadline_source)
+    if check_only:
+        # Connection checks need source adapters, not writable application journals.
+        return runtime
     groq_message_client = None
     if settings.groq_planning_api_key:
         groq_message_client = GroqClient(
@@ -394,7 +402,6 @@ def build_runtime(settings: Settings) -> Runtime:
             SQLiteInboxCaptureStore(settings.root / "state" / "inbox.sqlite3"),
             NotionInboxWriter(client, NotionInboxConfig(**inbox_config)),
         )
-        runtime.inbox_app.recover_inflight()
     task_config = reminder_config.get("notion_tasks")
     if task_config:
         runtime.task_capture_app = TaskCaptureApplication(
@@ -410,7 +417,6 @@ def build_runtime(settings: Settings) -> Runtime:
                 ),
             ),
         )
-        runtime.task_capture_app.recover_inflight()
     if settings.groq_api_key:
         ai = settings.config.get("reports", {}).get("ai", {})
         engine = GroqClient(
