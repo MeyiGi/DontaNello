@@ -21,7 +21,13 @@ src/dontanello/
   bootstrap.py                 # сборка конкретных зависимостей
   entrypoints/
     cli.py
-    telegram.py                # команды, проверка пользователя, маршрутизация
+    telegram/
+      __init__.py              # public TelegramCommands interface
+      facade.py                # polling and update/cursor lifecycle
+      messages.py              # message authorization, command routing and replies
+      intents.py               # classified natural-language intents → applications
+      callbacks.py              # inline actions, authorization and durable delivery
+      ui.py                    # keyboards and callback markup
     worker.py                  # расписание, запуск сценариев, изоляция ошибок
   modules/
     task_capture/
