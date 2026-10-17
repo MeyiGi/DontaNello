@@ -33,6 +33,15 @@ class PersonalReminder:
 
 
 @dataclass(frozen=True)
+class RoutineDelivery:
+    """Persisted morning reminder snapshot for one local date."""
+
+    status: str
+    text: str
+    next_attempt: datetime | None = None
+
+
+@dataclass(frozen=True)
 class ReminderDraft:
     text: str
     day: date | None = None
