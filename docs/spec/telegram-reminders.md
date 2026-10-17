@@ -17,6 +17,25 @@
 - Confirm each saved reminder with its text, resolved local date/time, and cancellable ID. `/reminders` lists pending items; `/cancelreminder ID` cancels one.
 - Deliver due reminders in the same authorized private chat. Persist reminder identity and delivery state before external sends. A duplicate Telegram update must not create a duplicate reminder. Explicit Telegram rejection may be retried with backoff; uncertain delivery is not automatically repeated.
 
+## Morning learning routine
+
+- A separate, optional daily Telegram reminder shows the **current weekday's** activities
+  from `learning_routine.days` in `config/settings.json` (Monday first, Sunday last).
+- Initial schedule: Mon LeetCode 30m + Spanish 10m; Tue Spanish 10m;
+  Wed Spanish 5–10m; Thu Spanish 10m; Fri violin 25m + Spanish 10m;
+  Sat LeetCode 40m + Spanish 10m; Sun LeetCode 40m + violin 30m + Spanish 15m.
+- Default delivery time is **06:30** in the configured timezone (Asia/Bishkek by default).
+  `learning_routine.enabled`, `time` and the seven `days` entries are configurable.
+- The routine job is independent of Notion deadlines: it still runs if the deadline
+  source is unavailable. Send only in the local morning before 12:00; missed
+  afternoons and prior days are not backfilled.
+- Persist message content and once-per-local-date delivery status in
+  `state/reminders.sqlite3`. Retry explicit Telegram rejections after five minutes;
+  ambiguous sends and interrupted in-flight sends remain `uncertain` and are not
+  resent blindly. No routine is sent to unauthorized chats.
+- Keep the plan motivational rather than mandatory; a demanding work or exam day
+  may justify rest. No completion status is inferred from delivery.
+
 ## Authorization and configuration
 
 - Personal task access, settings, reminder creation, listing, cancellation, and delivery are restricted to the configured private Telegram chat. Authorization is checked before any Notion reads or reminder actions. Groups receive none of these capabilities.

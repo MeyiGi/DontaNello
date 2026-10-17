@@ -86,6 +86,13 @@ class ReportAI(msgspec.Struct):
     monthly_reasoning: ReasoningEffort = "high"
 
 
+class LearningRoutine(msgspec.Struct):
+    enabled: bool = False
+    time: ClockTime = "06:30"
+    # Monday through Sunday. Each day's activities are displayed without transformation.
+    days: list[list[NonEmptyString]] = msgspec.field(default_factory=list)
+
+
 class Reports(msgspec.Struct):
     enabled: bool = False
     hour: Annotated[int, msgspec.Meta(ge=0, le=23)] = 9
@@ -109,6 +116,7 @@ class Configuration(msgspec.Struct):
     inbox: Inbox | None = None
     calendar_planning: CalendarPlanning | None = None
     weather: Weather = msgspec.field(default_factory=Weather)
+    learning_routine: LearningRoutine = msgspec.field(default_factory=LearningRoutine)
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,7 @@ from dontanello.modules.operations.adapters.telegram import TelegramAlertSender
 from dontanello.modules.reminders import ReminderApplication, TaskDigestSettings
 from dontanello.modules.reminders.adapters.sqlite import SQLiteReminderRepository
 from dontanello.modules.reminders.adapters.telegram import TelegramReminderSender
+from dontanello.modules.reminders.weekly_routine import WeeklyRoutine
 from dontanello.modules.reports import DeliveryService, ScheduledReports
 from dontanello.modules.reports.adapters.sqlite_delivery import SQLiteDeliveryStore
 from dontanello.modules.reports.adapters.telegram import TelegramReportSender
@@ -50,6 +51,7 @@ def register_jobs(runtime: Runtime) -> list[Job]:
     telegram = TelegramClient(settings.telegram_token)
     if runtime.task_deadline_source is not None:
         jobs.extend(_reminder_jobs(runtime, telegram))
+    jobs.extend(_learning_routine_jobs(runtime, telegram))
     jobs.extend(_telegram_jobs(runtime, telegram))
     return jobs
 
@@ -106,6 +108,30 @@ def _reminder_jobs(runtime: Runtime, telegram: TelegramClient) -> list[Job]:
             group="personal_reminders",
             interval_seconds=15,
         ),
+    ]
+
+
+def _learning_routine_jobs(runtime: Runtime, telegram: TelegramClient) -> list[Job]:
+    """The personal learning plan is independent of Notion task availability."""
+    settings = runtime.settings
+    config = settings.config.get("learning_routine", {})
+    if not config.get("enabled", False):
+        return []
+    routine = WeeklyRoutine(
+        SQLiteReminderRepository(settings.root / "state" / "reminders.sqlite3"),
+        TelegramReminderSender(telegram),
+        settings.telegram_chat_id,
+        settings.timezone,
+        time.fromisoformat(config.get("time", "06:30")),
+        tuple(tuple(day) for day in config["days"]),
+    )
+    return [
+        Job(
+            "learning_routine",
+            lambda: routine.run(runtime.now()),
+            group="learning_routine",
+            interval_seconds=60,
+        )
     ]
 
 
