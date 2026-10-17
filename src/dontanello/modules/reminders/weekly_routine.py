@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, time, timedelta, tzinfo
 
-from .models import ReminderSendRejected, ReminderSendUncertain
+from .models import ReminderSendRejected
 from .ports import ReminderSender, RoutineDeliveryStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ class WeeklyRoutine:
             self.store.finish_routine(today, "pending", now + _RETRY_DELAY)
             _LOGGER.warning("Weekly routine rejected; will retry in five minutes")
             return 0
-        except (ReminderSendUncertain, Exception):
+        except Exception:
             self.store.finish_routine(today, "uncertain")
             _LOGGER.warning("Weekly routine delivery uncertain; automatic resend disabled")
             return 0
