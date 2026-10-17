@@ -259,7 +259,9 @@ class SQLiteReminderRepository:
             if row is None:
                 return None
             retry = datetime.fromisoformat(row["next_attempt"]) if row["next_attempt"] else None
-            return RoutineDelivery(status=str(row["status"]), text=str(row["text"]), next_attempt=retry)
+            return RoutineDelivery(
+                status=str(row["status"]), text=str(row["text"]), next_attempt=retry
+            )
         finally:
             connection.close()
 
