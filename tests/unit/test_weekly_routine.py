@@ -100,9 +100,27 @@ class WeeklyRoutineTests(unittest.TestCase):
         store = SQLiteReminderRepository(self.path)
         store.prepare_routine(day, "frozen message")
         self.assertTrue(store.claim_routine(day, now))
-        self.assertEqual(self.make_app().run(now), 0)
-        self.assertEqual(store.routine_state(day)[0], "uncertain")
+        restarted = self.make_app()
+        restarted.recover_inflight()
+        self.assertEqual(restarted.run(now), 0)
+        self.assertEqual(store.routine_state(day).status, "uncertain")
         self.assertEqual(self.sender.messages, [])
+
+    def test_construction_does_not_initialize_or_recover_persistent_state(self):
+        self.assertFalse(self.path.exists())
+        self.make_app()
+        self.assertFalse(self.path.exists())
+
+    def test_prepared_message_remains_frozen_when_plan_changes(self):
+        now = datetime(2026, 10, 19, 6, 30, tzinfo=TZ)
+        store = SQLiteReminderRepository(self.path)
+        store.prepare_routine(now.date(), "Original scheduled plan")
+        modified_plan = tuple(("Изменённое расписание",) for _ in range(7))
+        modified_app = WeeklyRoutine(store, self.sender, "123", TZ, time(6, 30), modified_plan)
+
+        self.assertEqual(modified_app.run(now), 1)
+        self.assertEqual(self.sender.messages[0][1], "Original scheduled plan")
+        self.assertEqual(store.routine_state(now.date()).status, "sent")
 
     def test_missed_day_is_not_sent_in_the_afternoon(self):
         now = datetime(2026, 10, 19, 13, 0, tzinfo=TZ)
