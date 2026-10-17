@@ -1,4 +1,4 @@
-"""SQLite persistence for task digest settings and one-time reminders."""
+"""SQLite persistence for task digests, one-time reminders and weekly routines."""
 
 from __future__ import annotations
 
@@ -51,6 +51,12 @@ class SQLiteReminderRepository:
             );
             CREATE INDEX IF NOT EXISTS personal_reminder_due
                 ON personal_reminder(status, due_at, next_attempt);
+            CREATE TABLE IF NOT EXISTS weekly_routine_delivery (
+                local_day TEXT PRIMARY KEY,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'sending', 'sent', 'uncertain')),
+                text TEXT NOT NULL,
+                next_attempt TEXT
+            );
             """
         )
         connection.execute("PRAGMA user_version = 1")
@@ -239,6 +245,73 @@ class SQLiteReminderRepository:
             connection.execute(
                 "UPDATE personal_reminder SET status=?, next_attempt=? WHERE id=? AND status='sending'",
                 (status, _stamp(next_attempt) if next_attempt else None, reminder_id),
+            )
+        finally:
+            connection.close()
+
+    def routine_state(self, day: date) -> tuple[str, str, datetime | None] | None:
+        connection = self._connect()
+        try:
+            row = connection.execute(
+                "SELECT status, text, next_attempt FROM weekly_routine_delivery WHERE local_day=?",
+                (day.isoformat(),),
+            ).fetchone()
+            if row is None:
+                return None
+            retry = datetime.fromisoformat(row["next_attempt"]) if row["next_attempt"] else None
+            return str(row["status"]), str(row["text"]), retry
+        finally:
+            connection.close()
+
+    def prepare_routine(self, day: date, text: str) -> None:
+        connection = self._connect()
+        try:
+            connection.execute(
+                """INSERT OR IGNORE INTO weekly_routine_delivery
+                   (local_day, status, text) VALUES (?, 'pending', ?)""",
+                (day.isoformat(), text),
+            )
+        finally:
+            connection.close()
+
+    def claim_routine(self, day: date, now: datetime) -> bool:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            updated = connection.execute(
+                """UPDATE weekly_routine_delivery SET status='sending'
+                   WHERE local_day=? AND status='pending'
+                   AND (next_attempt IS NULL OR next_attempt <= ?)""",
+                (day.isoformat(), _stamp(now)),
+            )
+            connection.commit()
+            return updated.rowcount == 1
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def finish_routine(
+        self, day: date, status: str, next_attempt: datetime | None = None
+    ) -> None:
+        if status not in {"pending", "sent", "uncertain"}:
+            raise ValueError("Unsupported routine delivery status")
+        connection = self._connect()
+        try:
+            connection.execute(
+                """UPDATE weekly_routine_delivery
+                   SET status=?, next_attempt=? WHERE local_day=? AND status='sending'""",
+                (status, _stamp(next_attempt) if next_attempt else None, day.isoformat()),
+            )
+        finally:
+            connection.close()
+
+    def recover_routine_inflight(self) -> None:
+        connection = self._connect()
+        try:
+            connection.execute(
+                "UPDATE weekly_routine_delivery SET status='uncertain' WHERE status='sending'"
             )
         finally:
             connection.close()
