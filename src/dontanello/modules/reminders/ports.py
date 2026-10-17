@@ -3,7 +3,7 @@
 from datetime import date, datetime
 from typing import Protocol
 
-from .models import PersonalReminder, TaskDeadline, TaskDigestSettings
+from .models import PersonalReminder, RoutineDelivery, TaskDeadline, TaskDigestSettings
 
 
 class TaskDeadlineSource(Protocol):
@@ -33,7 +33,7 @@ class ReminderRepository(Protocol):
 
 
 class RoutineDeliveryStore(Protocol):
-    def routine_state(self, day: date) -> tuple[str, str, datetime | None] | None: ...
+    def routine_state(self, day: date) -> RoutineDelivery | None: ...
     def prepare_routine(self, day: date, text: str) -> None: ...
     def claim_routine(self, day: date, now: datetime) -> bool: ...
     def finish_routine(

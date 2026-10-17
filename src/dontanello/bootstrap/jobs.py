@@ -125,6 +125,7 @@ def _learning_routine_jobs(runtime: Runtime, telegram: TelegramClient) -> list[J
         time.fromisoformat(config.get("time", "06:30")),
         tuple(tuple(day) for day in config["days"]),
     )
+    routine.recover_inflight()
     return [
         Job(
             "learning_routine",
