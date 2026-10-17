@@ -56,37 +56,50 @@ class WeeklyRoutine:
         self.timezone = timezone
         self.send_time = send_time
         self.days = days
+
+    def recover_inflight(self) -> None:
+        """Recover once at worker startup, not during object construction."""
         self.store.recover_routine_inflight()
 
     def run(self, now: datetime) -> int:
         local_now = now.astimezone(self.timezone)
         local_time = local_now.time().replace(tzinfo=None)
-        # Delayed startup may send later in the morning, but never after noon.
-        if local_time < self.send_time or local_time >= time(12):
+        # A late worker may send in the morning, never in the afternoon.
+        if not self.send_time <= local_time < time(12):
             return 0
 
         today = local_now.date()
-        state = self.store.routine_state(today)
-        if state is None:
+        delivery = self.store.routine_state(today)
+        if delivery is None:
             self.store.prepare_routine(today, render_weekly_routine(today, self.days))
-            state = self.store.routine_state(today)
-        if state is None or state[0] != "pending":
+            delivery = self.store.routine_state(today)
+
+        if delivery is None or delivery.status != "pending":
             return 0
-        if state[2] is not None and state[2] > now:
+        if delivery.next_attempt is not None and delivery.next_attempt > now:
             return 0
         if not self.store.claim_routine(today, now):
             return 0
 
+        return self._send_claimed(today, delivery.text, now)
+
+    def _send_claimed(self, day: date, text: str, now: datetime) -> int:
         try:
-            self.sender.send(self.chat_id, state[1])
-        except ReminderSendRejected:
-            self.store.finish_routine(today, "pending", now + _RETRY_DELAY)
-            _LOGGER.warning("Weekly routine rejected; will retry in five minutes")
+            self.sender.send(self.chat_id, text)
+        except ReminderSendRejected as error:
+            self.store.finish_routine(day, "pending", now + _RETRY_DELAY)
+            _LOGGER.warning(
+                "Weekly routine rejected (%s); retry scheduled", type(error).__name__
+            )
             return 0
-        except Exception:
-            self.store.finish_routine(today, "uncertain")
-            _LOGGER.warning("Weekly routine delivery uncertain; automatic resend disabled")
+        except Exception as error:
+            # A timeout or unexpected transport exception might have delivered the text.
+            self.store.finish_routine(day, "uncertain")
+            _LOGGER.warning(
+                "Weekly routine delivery uncertain (%s); automatic resend disabled",
+                type(error).__name__,
+            )
             return 0
 
-        self.store.finish_routine(today, "sent")
+        self.store.finish_routine(day, "sent")
         return 1
