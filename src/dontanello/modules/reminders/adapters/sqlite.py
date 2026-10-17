@@ -8,7 +8,7 @@ import sqlite3
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
-from ..models import PersonalReminder, TaskDigestSettings
+from ..models import PersonalReminder, RoutineDelivery, TaskDigestSettings
 
 
 class SQLiteReminderRepository:
@@ -249,7 +249,7 @@ class SQLiteReminderRepository:
         finally:
             connection.close()
 
-    def routine_state(self, day: date) -> tuple[str, str, datetime | None] | None:
+    def routine_state(self, day: date) -> RoutineDelivery | None:
         connection = self._connect()
         try:
             row = connection.execute(
@@ -259,7 +259,7 @@ class SQLiteReminderRepository:
             if row is None:
                 return None
             retry = datetime.fromisoformat(row["next_attempt"]) if row["next_attempt"] else None
-            return str(row["status"]), str(row["text"]), retry
+            return RoutineDelivery(status=str(row["status"]), text=str(row["text"]), next_attempt=retry)
         finally:
             connection.close()
 
