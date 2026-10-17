@@ -5,6 +5,7 @@ from .schema import (
     CompletionSource,
     Configuration,
     Inbox,
+    LearningRoutine,
     Reminders,
     Reports,
     Weather,
@@ -20,6 +21,7 @@ def _validate(config: Configuration, env: dict[str, str]) -> None:
     _validate_calendar(config.calendar_planning)
     _validate_inbox(config.inbox)
     _validate_reminders(config.reminders)
+    _validate_learning_routine(config.learning_routine)
     _validate_reports(config.reports, env)
     _validate_weather(config.weather, env)
 
@@ -52,6 +54,15 @@ def _validate_reminders(reminders: Reminders | None) -> None:
         raise ValueError("reminders.weekdays должен содержать уникальные дни от 0 до 6")
     if reminders.notion_tasks is None:
         raise ValueError("Некорректные настройки reminders.notion_tasks")
+
+
+def _validate_learning_routine(routine: LearningRoutine) -> None:
+    if not routine.enabled:
+        return
+    if len(routine.days) != 7 or any(not day for day in routine.days):
+        raise ValueError("learning_routine.days должен содержать 7 непустых дней (пн–вс)")
+    if routine.time >= "12:00":
+        raise ValueError("learning_routine.time должен быть раньше 12:00")
 
 
 def _validate_reports(reports: Reports, env: dict[str, str]) -> None:
