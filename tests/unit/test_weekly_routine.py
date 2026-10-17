@@ -44,8 +44,12 @@ class WeeklyRoutineTests(unittest.TestCase):
 
     def make_app(self):
         return WeeklyRoutine(
-            SQLiteReminderRepository(self.path), self.sender, "123",
-            TZ, time(6, 30), DAYS,
+            SQLiteReminderRepository(self.path),
+            self.sender,
+            "123",
+            TZ,
+            time(6, 30),
+            DAYS,
         )
 
     def test_weekday_selection_matches_the_seven_day_schedule(self):
@@ -70,7 +74,7 @@ class WeeklyRoutineTests(unittest.TestCase):
         self.assertIn("LeetCode — 30 минут", self.sender.messages[0][1])
 
     def test_utc_instant_uses_bishkek_local_date(self):
-        now = datetime(2026, 10, 18, 23, 0, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 19, 0, 30, tzinfo=timezone.utc)
         self.assertEqual(self.app.run(now), 1)
         self.assertIn("Понедельник, 19.10.2026", self.sender.messages[0][1])
 
@@ -104,7 +108,7 @@ class WeeklyRoutineTests(unittest.TestCase):
         now = datetime(2026, 10, 19, 13, 0, tzinfo=TZ)
         self.assertEqual(self.app.run(now), 0)
         self.assertEqual(self.sender.messages, [])
-        self.assertEqual(self.app.run(now + timedelta(days=1, hours=-6)), 1)
+        self.assertEqual(self.app.run(now.replace(day=20, hour=7)), 1)
 
 
 if __name__ == "__main__":
