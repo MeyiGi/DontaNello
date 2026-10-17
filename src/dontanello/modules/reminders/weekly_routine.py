@@ -88,9 +88,7 @@ class WeeklyRoutine:
             self.sender.send(self.chat_id, text)
         except ReminderSendRejected as error:
             self.store.finish_routine(day, "pending", now + _RETRY_DELAY)
-            _LOGGER.warning(
-                "Weekly routine rejected (%s); retry scheduled", type(error).__name__
-            )
+            _LOGGER.warning("Weekly routine rejected (%s); retry scheduled", type(error).__name__)
             return 0
         except Exception as error:
             # A timeout or unexpected transport exception might have delivered the text.
