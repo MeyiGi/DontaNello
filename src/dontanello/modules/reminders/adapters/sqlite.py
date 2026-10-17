@@ -292,9 +292,7 @@ class SQLiteReminderRepository:
         finally:
             connection.close()
 
-    def finish_routine(
-        self, day: date, status: str, next_attempt: datetime | None = None
-    ) -> None:
+    def finish_routine(self, day: date, status: str, next_attempt: datetime | None = None) -> None:
         if status not in {"pending", "sent", "uncertain"}:
             raise ValueError("Unsupported routine delivery status")
         connection = self._connect()
